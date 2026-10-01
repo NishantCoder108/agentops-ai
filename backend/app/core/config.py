@@ -1,13 +1,48 @@
+from enum import Enum
 from functools import lru_cache
+from typing import Annotated, Any, List
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+class Environment(str, Enum):
+    DEVELOPMENT = "development"
+    PRODUCTION = "production"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "AgentOps AI"
-    environment: str = "development"
+    environment: Environment = Environment.DEVELOPMENT
+    debug: bool = False
+    api_v1_prefix: str = "/api/v1"
+    cors_origins: Annotated[List[str], NoDecode] = ["http://localhost:5173"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def split_cors_origins(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @model_validator(mode="after")
+    def check_production_safety(self) -> "Settings":
+        if self.is_production:
+            if self.debug:
+                raise ValueError("DEBUG must be false in production")
+            if "*" in self.cors_origins:
+                raise ValueError("CORS_ORIGINS must not contain '*' in production")
+        return self
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == Environment.PRODUCTION
+
+    @property
+    def docs_enabled(self) -> bool:
+        return not self.is_production
 
 
 @lru_cache
