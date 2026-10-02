@@ -9,6 +9,7 @@ from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.schemas.error import ErrorResponse
+from app.tools import create_default_tool_registry
 
 
 @asynccontextmanager
@@ -31,6 +32,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.llm_provider = None
+    app.state.tool_registry = create_default_tool_registry()
 
     app.add_middleware(
         CORSMiddleware,

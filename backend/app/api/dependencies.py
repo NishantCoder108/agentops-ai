@@ -6,6 +6,7 @@ from app.agent.service import AgentService
 from app.core.config import Settings
 from app.llm.base import LLMProvider
 from app.llm.factory import create_llm_provider
+from app.tools.registry import ToolRegistry
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -23,8 +24,15 @@ def get_llm_provider(
     return provider
 
 
-def get_agent_service(provider: Annotated[LLMProvider, Depends(get_llm_provider)]) -> AgentService:
-    return AgentService(provider)
+def get_tool_registry(request: Request) -> ToolRegistry:
+    return request.app.state.tool_registry
+
+
+def get_agent_service(
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+    tools: Annotated[ToolRegistry, Depends(get_tool_registry)],
+) -> AgentService:
+    return AgentService(provider, tools)
 
 
 async def close_llm_provider(app: FastAPI) -> None:

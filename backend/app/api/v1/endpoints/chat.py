@@ -17,7 +17,10 @@ router = APIRouter(tags=["chat"])
     responses={
         422: {"model": ErrorResponse, "description": "Invalid request"},
         429: {"model": ErrorResponse, "description": "LLM provider rate limit exceeded"},
-        502: {"model": ErrorResponse, "description": "LLM provider error"},
+        502: {
+            "model": ErrorResponse,
+            "description": "LLM provider error, or the agent did not finish within its step limit",
+        },
         504: {"model": ErrorResponse, "description": "LLM provider timed out"},
     },
 )

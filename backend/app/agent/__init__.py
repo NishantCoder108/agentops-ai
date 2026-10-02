@@ -1,3 +1,10 @@
-from app.agent.service import DEFAULT_SYSTEM_PROMPT, AgentService
+from app.agent.errors import AgentError, AgentMaxStepsExceededError
+from app.agent.service import DEFAULT_MAX_STEPS, DEFAULT_SYSTEM_PROMPT, AgentService
 
-__all__ = ["DEFAULT_SYSTEM_PROMPT", "AgentService"]
+__all__ = [
+    "DEFAULT_MAX_STEPS",
+    "DEFAULT_SYSTEM_PROMPT",
+    "AgentError",
+    "AgentMaxStepsExceededError",
+    "AgentService",
+]

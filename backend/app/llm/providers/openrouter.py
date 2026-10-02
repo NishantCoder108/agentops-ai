@@ -7,7 +7,7 @@ import openai
 from openai import AsyncOpenAI
 
 from app.llm.errors import LLMProviderError
-from app.llm.types import ChatMessage, LLMResponse, TokenUsage
+from app.llm.types import ChatMessage, LLMResponse, TokenUsage, ToolCall, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +47,18 @@ class OpenRouterProvider:
         model: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        tools: Sequence[ToolDefinition] | None = None,
     ) -> LLMResponse:
         request: dict[str, Any] = {
             "model": model or self._model,
-            "messages": [message.model_dump() for message in messages],
+            "messages": [_to_openai_message(message) for message in messages],
         }
         if temperature is not None:
             request["temperature"] = temperature
         if max_tokens is not None:
             request["max_tokens"] = max_tokens
+        if tools:
+            request["tools"] = [_to_openai_tool(tool) for tool in tools]
 
         try:
             completion = await self._client.chat.completions.create(**request)
@@ -93,7 +96,39 @@ class OpenRouterProvider:
             )
             if usage
             else None,
+            tool_calls=[
+                ToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)
+                for call in choice.message.tool_calls or []
+                if call.type == "function"
+            ],
         )
 
     async def aclose(self) -> None:
         await self._client.close()
+
+
+def _to_openai_message(message: ChatMessage) -> dict[str, Any]:
+    payload: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_calls:
+        payload["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in message.tool_calls
+        ]
+    if message.tool_call_id is not None:
+        payload["tool_call_id"] = message.tool_call_id
+    return payload
+
+
+def _to_openai_tool(tool: ToolDefinition) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.parameters,
+        },
+    }
