@@ -1,10 +1,20 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.dependencies import close_llm_provider
 from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.schemas.error import ErrorResponse
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await close_llm_provider(app)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -17,7 +27,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url="/redoc" if settings.docs_enabled else None,
         openapi_url="/openapi.json" if settings.docs_enabled else None,
         responses={500: {"model": ErrorResponse, "description": "Internal server error"}},
+        lifespan=lifespan,
     )
+    app.state.settings = settings
+    app.state.llm_provider = None
 
     app.add_middleware(
         CORSMiddleware,
