@@ -1,14 +1,18 @@
 from enum import Enum
 from functools import lru_cache
-from typing import Annotated, Any, List
+from typing import Annotated, Any
 
-from pydantic import field_validator, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Environment(str, Enum):
     DEVELOPMENT = "development"
     PRODUCTION = "production"
+
+
+class LLMProviderName(str, Enum):
+    OPENROUTER = "openrouter"
 
 
 class Settings(BaseSettings):
@@ -18,7 +22,15 @@ class Settings(BaseSettings):
     environment: Environment = Environment.DEVELOPMENT
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
-    cors_origins: Annotated[List[str], NoDecode] = ["http://localhost:5173"]
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+
+    llm_provider: LLMProviderName = LLMProviderName.OPENROUTER
+    llm_model: str | None = None
+    llm_timeout_seconds: float = 60.0
+    llm_max_retries: int = 2
+
+    openrouter_api_key: SecretStr | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

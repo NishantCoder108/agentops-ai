@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -27,8 +27,8 @@ def _error_response(
     status_code: int,
     code: str,
     message: str,
-    details: Optional[Any] = None,
-    headers: Optional[dict] = None,
+    details: Any | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     body = ErrorResponse(error=ErrorDetail(code=code, message=message, details=details))
     return JSONResponse(

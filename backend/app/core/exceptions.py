@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 
 class AppError(Exception):
@@ -11,9 +11,9 @@ class AppError(Exception):
         self,
         message: str,
         *,
-        code: Optional[str] = None,
-        status_code: Optional[int] = None,
-        details: Optional[Any] = None,
+        code: str | None = None,
+        status_code: int | None = None,
+        details: Any | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
