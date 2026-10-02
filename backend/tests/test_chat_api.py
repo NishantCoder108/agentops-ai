@@ -6,11 +6,11 @@ from app.agent import DEFAULT_SYSTEM_PROMPT
 from app.api import dependencies
 from app.api.dependencies import get_llm_provider
 from app.core.config import Settings
-from app.llm import ChatMessage, LLMProviderError
+from app.llm import ChatMessage, LLMProviderError, ToolCall
 from app.main import create_app
 from app.schemas.chat import MAX_MESSAGE_LENGTH
 from tests.conftest import make_settings
-from tests.fakes import FakeLLMProvider
+from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 
 
 @pytest.fixture
@@ -66,6 +66,32 @@ def test_chat_provider_error_uses_error_format(
             "details": None,
         }
     }
+
+
+def test_chat_runs_calculator_tool_and_returns_final_answer(app: FastAPI, client: TestClient) -> None:
+    call = ToolCall(id="call_1", name="calculator", arguments='{"expression": "25 * 800 / 100"}')
+    fake = FakeLLMProvider(responses=[tool_call_response(call), answer_response("25% of 800 is 200.")])
+    app.dependency_overrides[get_llm_provider] = lambda: fake
+
+    response = client.post("/api/v1/chat", json={"message": "What is 25% of 800?"})
+
+    assert response.status_code == 200
+    assert response.json() == {"answer": "25% of 800 is 200."}
+    assert [tool.name for tool in fake.calls[0]["tools"]] == ["calculator"]
+    assert fake.calls[1]["messages"][-1] == ChatMessage(
+        role="tool", tool_call_id="call_1", content='{"result":200}'
+    )
+
+
+def test_chat_agent_step_limit_uses_error_format(app: FastAPI, client: TestClient) -> None:
+    call = ToolCall(id="call_1", name="calculator", arguments='{"expression": "1 + 1"}')
+    fake = FakeLLMProvider(responses=[tool_call_response(call)] * 10)
+    app.dependency_overrides[get_llm_provider] = lambda: fake
+
+    response = client.post("/api/v1/chat", json={"message": "Hello"})
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "agent_max_steps_exceeded"
 
 
 def test_chat_without_llm_config_returns_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:

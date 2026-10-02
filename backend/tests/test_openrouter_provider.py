@@ -4,7 +4,7 @@ from collections.abc import Callable
 import httpx2
 import pytest
 
-from app.llm import ChatMessage, LLMProviderError
+from app.llm import ChatMessage, LLMProviderError, ToolCall, ToolDefinition
 from app.llm.providers.openrouter import OpenRouterProvider
 
 pytestmark = pytest.mark.anyio
@@ -68,6 +68,98 @@ async def test_generate_sends_openai_compatible_request_and_parses_response() ->
     assert response.model == "test/model"
     assert response.finish_reason == "stop"
     assert response.usage is not None and response.usage.total_tokens == 8
+
+
+async def test_generate_sends_tools_and_tool_messages_in_openai_format() -> None:
+    captured: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        captured.append(request)
+        return httpx2.Response(200, json=completion_body("It is 200."))
+
+    call = ToolCall(id="call_1", name="calculator", arguments='{"expression": "25 * 800 / 100"}')
+    tool = ToolDefinition(
+        name="calculator",
+        description="Evaluate arithmetic",
+        parameters={"type": "object", "properties": {"expression": {"type": "string"}}},
+    )
+    provider = make_provider(handler)
+    await provider.generate(
+        [
+            ChatMessage(role="user", content="25% of 800?"),
+            ChatMessage(role="assistant", content=None, tool_calls=[call]),
+            ChatMessage(role="tool", tool_call_id="call_1", content='{"result":200}'),
+        ],
+        tools=[tool],
+    )
+    await provider.aclose()
+
+    body = json.loads(captured[0].content)
+    assert body["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "calculator",
+                "description": "Evaluate arithmetic",
+                "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}},
+            },
+        }
+    ]
+    assert body["messages"] == [
+        {"role": "user", "content": "25% of 800?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "calculator", "arguments": '{"expression": "25 * 800 / 100"}'},
+                }
+            ],
+        },
+        {"role": "tool", "content": '{"result":200}', "tool_call_id": "call_1"},
+    ]
+
+
+async def test_generate_without_tools_omits_tools_field() -> None:
+    captured: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        captured.append(request)
+        return httpx2.Response(200, json=completion_body())
+
+    provider = make_provider(handler)
+    await provider.generate([ChatMessage(role="user", content="Hello")], tools=[])
+    await provider.aclose()
+
+    assert "tools" not in json.loads(captured[0].content)
+
+
+async def test_generate_parses_tool_calls_from_response() -> None:
+    body = completion_body()
+    body["choices"][0]["finish_reason"] = "tool_calls"
+    body["choices"][0]["message"] = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "calculator", "arguments": '{"expression": "2 + 2"}'},
+            }
+        ],
+    }
+    provider = make_provider(lambda _: httpx2.Response(200, json=body))
+
+    response = await provider.generate([ChatMessage(role="user", content="2+2?")])
+    await provider.aclose()
+
+    assert response.content == ""
+    assert response.finish_reason == "tool_calls"
+    assert response.tool_calls == [
+        ToolCall(id="call_1", name="calculator", arguments='{"expression": "2 + 2"}')
+    ]
 
 
 async def test_generate_maps_http_error_to_provider_error() -> None:
