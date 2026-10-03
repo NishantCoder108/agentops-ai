@@ -12,6 +12,7 @@ from app.auth.permissions import Permission, permissions_for
 from app.auth.tokens import decode_access_token
 from app.core.config import Settings
 from app.db.errors import DatabaseNotConfiguredError
+from app.rate_limit import RateLimiter, RateLimitedError
 from app.knowledge.embeddings import EmbeddingProvider, create_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import create_llm_provider
@@ -64,6 +65,27 @@ def require_permission(permission: str) -> Callable[..., object]:
         return user
 
     return checker
+
+
+_chat_user = require_permission(Permission.CHAT)
+
+
+async def enforce_chat_rate_limit(
+    request: Request,
+    user: Annotated[User, Depends(_chat_user)],
+) -> User:
+    """Count one chat request. A user who cannot chat is rejected before the counter moves."""
+    settings: Settings = request.app.state.settings
+    limiter: RateLimiter = request.app.state.rate_limiter
+    decision = await limiter.consume(
+        "chat",
+        str(user.id),
+        limit=settings.chat_rate_limit_requests,
+        window_seconds=settings.chat_rate_limit_window_seconds,
+    )
+    if not decision.allowed:
+        raise RateLimitedError(decision.retry_after_seconds)
+    return user
 
 
 def get_current_organization_id(user: Annotated[User, Depends(get_current_user)]) -> uuid.UUID:

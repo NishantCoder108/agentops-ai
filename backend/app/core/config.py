@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr | None = None
     jwt_access_token_minutes: int = 60
 
+    # Chat rate-limit counters only. Leave empty in development to count in this process.
+    # Required in production so every worker shares one limit. Never store PostgreSQL data here.
+    redis_url: SecretStr | None = None
+    chat_rate_limit_requests: int = 20
+    chat_rate_limit_window_seconds: int = 60
+
     # Kept so existing environment files still load. Authorization uses the authenticated user's
     # organization, never this value, the LLM, or the request body.
     default_organization_id: uuid.UUID | None = None
@@ -58,7 +64,12 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "database_url", "default_organization_id", "embedding_model", "jwt_secret", mode="before"
+        "database_url",
+        "default_organization_id",
+        "embedding_model",
+        "jwt_secret",
+        "redis_url",
+        mode="before",
     )
     @classmethod
     def empty_string_is_unset(cls, value: Any) -> Any:
@@ -87,6 +98,30 @@ class Settings(BaseSettings):
             raise ValueError("JWT_ACCESS_TOKEN_MINUTES must be between 1 and 1440")
         return value
 
+    @field_validator("redis_url")
+    @classmethod
+    def check_redis_url(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        url = value.get_secret_value()
+        if not url.startswith(("redis://", "rediss://")):
+            raise ValueError("REDIS_URL must start with redis:// or rediss://")
+        return value
+
+    @field_validator("chat_rate_limit_requests")
+    @classmethod
+    def check_chat_rate_limit_requests(cls, value: int) -> int:
+        if not 1 <= value <= 10_000:
+            raise ValueError("CHAT_RATE_LIMIT_REQUESTS must be between 1 and 10000")
+        return value
+
+    @field_validator("chat_rate_limit_window_seconds")
+    @classmethod
+    def check_chat_rate_limit_window(cls, value: int) -> int:
+        if not 1 <= value <= 24 * 60 * 60:
+            raise ValueError("CHAT_RATE_LIMIT_WINDOW_SECONDS must be between 1 and 86400")
+        return value
+
     @model_validator(mode="after")
     def check_production_safety(self) -> "Settings":
         if self.is_production:
@@ -96,6 +131,8 @@ class Settings(BaseSettings):
                 raise ValueError("CORS_ORIGINS must not contain '*' in production")
             if self.jwt_secret is None:
                 raise ValueError("JWT_SECRET must be set in production")
+            if self.redis_url is None:
+                raise ValueError("REDIS_URL must be set in production")
         return self
 
     @property

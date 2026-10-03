@@ -14,10 +14,12 @@ class AppError(Exception):
         code: str | None = None,
         status_code: int | None = None,
         details: Any | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.details = details
+        self.headers = headers
         if code is not None:
             self.code = code
         if status_code is not None:

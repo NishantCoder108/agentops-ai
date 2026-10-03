@@ -9,6 +9,7 @@ from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.db.session import create_db_engine, create_session_factory
+from app.rate_limit import create_rate_limiter
 from app.schemas.error import ErrorResponse
 
 
@@ -18,6 +19,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await close_llm_provider(app)
     await close_embedding_provider(app)
     await close_database(app)
+    await app.state.rate_limiter.aclose()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,6 +35,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    app.state.rate_limiter = create_rate_limiter(
+        settings.redis_url.get_secret_value() if settings.redis_url is not None else None
+    )
     app.state.llm_provider = None
     app.state.embedding_provider = None
     app.state.db_engine = create_db_engine(settings)

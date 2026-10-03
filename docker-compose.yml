@@ -22,5 +22,18 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    # Chat rate-limit counters only. No volume: a restart clears the window, which is safe.
+    # The app ignores this service until REDIS_URL is set.
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres-data:

@@ -10,8 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.events import AgentDone, AgentEvent, AgentStatus, AgentToken, ClientDisconnected
 from app.agent.service import AgentService
-from app.api.dependencies import get_agent_service, require_permission
-from app.auth.permissions import Permission
+from app.api.dependencies import enforce_chat_rate_limit, get_agent_service
 from app.core.exceptions import AppError
 from app.models import Conversation, User
 from app.schemas.chat import ChatRequest, ChatResponse
@@ -35,7 +34,11 @@ _STREAM_HEADERS = {
     responses={
         404: {"model": ErrorResponse, "description": "Conversation not found"},
         422: {"model": ErrorResponse, "description": "Invalid request"},
-        429: {"model": ErrorResponse, "description": "LLM provider rate limit exceeded"},
+        429: {
+            "model": ErrorResponse,
+            "description": "Too many chat requests, or the LLM provider rate limit was exceeded",
+        },
+        503: {"model": ErrorResponse, "description": "Chat rate limit store is unavailable"},
         502: {
             "model": ErrorResponse,
             "description": "LLM provider error, or the agent did not finish within its step limit",
@@ -46,7 +49,7 @@ _STREAM_HEADERS = {
 async def chat(
     payload: ChatRequest,
     request: Request,
-    user: Annotated[User, Depends(require_permission(Permission.CHAT))],
+    user: Annotated[User, Depends(enforce_chat_rate_limit)],
     agent: Annotated[AgentService, Depends(get_agent_service)],
 ) -> ChatResponse:
     session_factory: async_sessionmaker[AsyncSession] | None = request.app.state.db_session_factory
@@ -76,12 +79,14 @@ async def chat(
         403: {"model": ErrorResponse, "description": "Not allowed to chat"},
         404: {"model": ErrorResponse, "description": "Conversation not found"},
         422: {"model": ErrorResponse, "description": "Invalid request"},
+        429: {"model": ErrorResponse, "description": "Too many chat requests"},
+        503: {"model": ErrorResponse, "description": "Chat rate limit store is unavailable"},
     },
 )
 async def chat_stream(
     payload: ChatRequest,
     request: Request,
-    user: Annotated[User, Depends(require_permission(Permission.CHAT))],
+    user: Annotated[User, Depends(enforce_chat_rate_limit)],
     agent: Annotated[AgentService, Depends(get_agent_service)],
 ) -> StreamingResponse:
     """Stream agent status, tool progress, and answer tokens. POST /chat stays a single JSON response."""
