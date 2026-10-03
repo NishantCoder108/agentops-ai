@@ -1,13 +1,14 @@
 import uuid
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, CreatedAtMixin, TimestampMixin, UUIDPrimaryKeyMixin, enum_column
-from app.models.conversation import Message
+from app.db.base import Base, UUIDPrimaryKeyMixin, enum_column
+from app.models.conversation import Conversation
 
 
 class AgentRunStatus(StrEnum):
@@ -16,59 +17,71 @@ class AgentRunStatus(StrEnum):
     FAILED = "failed"
 
 
-class AgentRun(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """One execution of the agent loop, triggered by a user message.
+class ToolCallStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
-    The conversation is reachable through `input_message`, so it is not stored again. A user
-    message can have several runs (e.g. retries); an assistant message is produced by at most one.
+
+class AgentRun(UUIDPrimaryKeyMixin, Base):
+    """One execution of the agent loop for a conversation.
+
+    `started_at` is when the run began (before any tool call). Tool calls follow in `started_at`
+    order. `final_answer` is set only when the run completes.
     """
 
     __tablename__ = "agent_runs"
     __table_args__ = (
-        CheckConstraint("(status = 'failed') = (error_code IS NOT NULL)", name="error_code_iff_failed"),
+        CheckConstraint(
+            "(status = 'running') = (completed_at IS NULL)", name="completed_at_iff_finished"
+        ),
+        CheckConstraint(
+            "(status = 'completed') = (final_answer IS NOT NULL)", name="final_answer_iff_completed"
+        ),
     )
 
-    input_message_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("messages.id", ondelete="CASCADE"), index=True
-    )
-    output_message_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("messages.id", ondelete="SET NULL"), unique=True
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
     status: Mapped[AgentRunStatus] = mapped_column(
         enum_column(AgentRunStatus, "status"), default=AgentRunStatus.RUNNING
     )
-    # Model identifier reported by the provider; unknown until the first LLM response.
-    model: Mapped[str | None] = mapped_column(String(200))
-    error_code: Mapped[str | None] = mapped_column(String(100))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    final_answer: Mapped[str | None] = mapped_column(Text)
 
-    input_message: Mapped[Message] = relationship(foreign_keys=[input_message_id])
-    output_message: Mapped[Message | None] = relationship(foreign_keys=[output_message_id])
+    conversation: Mapped[Conversation] = relationship(back_populates="runs")
     tool_calls: Mapped[list["ToolCall"]] = relationship(
         back_populates="agent_run",
-        order_by="ToolCall.sequence",
+        order_by="ToolCall.started_at",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
 
 
-class ToolCall(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """A tool invocation requested by the model during an agent run. Immutable once recorded."""
+class ToolCall(UUIDPrimaryKeyMixin, Base):
+    """One tool invocation inside an agent run. Arguments and results are JSON, never raw SQL."""
 
     __tablename__ = "tool_calls"
     __table_args__ = (
-        # Also serves lookups by agent_run_id.
-        UniqueConstraint("agent_run_id", "sequence"),
-        CheckConstraint("sequence >= 1", name="sequence_positive"),
+        CheckConstraint(
+            "(status = 'running') = (completed_at IS NULL)", name="completed_at_iff_finished"
+        ),
+        CheckConstraint("(status = 'running') = (result IS NULL)", name="result_iff_finished"),
     )
 
-    agent_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"))
-    # 1-based execution order within the run; timestamps are not unique within a transaction.
-    sequence: Mapped[int]
+    agent_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("agent_runs.id", ondelete="CASCADE"), index=True
+    )
     tool_name: Mapped[str] = mapped_column(String(64))
-    # Raw argument string exactly as the model produced it; it may be invalid JSON.
-    arguments: Mapped[str] = mapped_column(Text)
-    # The JSON returned to the model: the tool output, or {"error": ..., "details": ...}.
-    result: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    is_error: Mapped[bool]
+    arguments: Mapped[Any] = mapped_column(JSONB)
+    result: Mapped[Any | None] = mapped_column(JSONB)
+    status: Mapped[ToolCallStatus] = mapped_column(
+        enum_column(ToolCallStatus, "status"), default=ToolCallStatus.RUNNING
+    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     agent_run: Mapped[AgentRun] = relationship(back_populates="tool_calls")
