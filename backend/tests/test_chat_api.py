@@ -30,10 +30,44 @@ def test_chat_returns_agent_answer(client: TestClient, provider: FakeLLMProvider
 def test_chat_passes_message_to_provider(client: TestClient, provider: FakeLLMProvider) -> None:
     client.post("/api/v1/chat", json={"message": "  Hello  "})
 
-    assert provider.calls[0]["messages"] == [
-        ChatMessage(role="system", content=DEFAULT_SYSTEM_PROMPT),
-        ChatMessage(role="user", content="Hello"),
-    ]
+    system, user = provider.calls[0]["messages"]
+    assert system.role == "system" and system.content.startswith(DEFAULT_SYSTEM_PROMPT)
+    assert user == ChatMessage(role="user", content="Hello")
+
+
+def test_chat_offers_only_calculator_without_database(client: TestClient, provider: FakeLLMProvider) -> None:
+    client.post("/api/v1/chat", json={"message": "Hello"})
+
+    assert [tool.name for tool in provider.calls[0]["tools"]] == ["calculator"]
+
+
+def test_chat_offers_only_calculator_without_organization(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEFAULT_ORGANIZATION_ID", raising=False)
+    app = create_app(make_settings(database_url="postgresql+asyncpg://u:p@127.0.0.1:1/none"))
+    fake = FakeLLMProvider()
+    app.dependency_overrides[get_llm_provider] = lambda: fake
+
+    TestClient(app).post("/api/v1/chat", json={"message": "Hello"})
+
+    assert [tool.name for tool in fake.calls[0]["tools"]] == ["calculator"]
+
+
+def test_chat_offers_analytics_with_database_and_organization() -> None:
+    # The tool is only offered here, never executed, so no database connection is opened.
+    app = create_app(
+        make_settings(
+            database_url="postgresql+asyncpg://u:p@127.0.0.1:1/none",
+            default_organization_id="7f1c7b7e-3c2e-4a59-9d39-2b0f5c3d8a10",
+        )
+    )
+    fake = FakeLLMProvider()
+    app.dependency_overrides[get_llm_provider] = lambda: fake
+
+    TestClient(app).post("/api/v1/chat", json={"message": "Hello"})
+
+    [calculator, analytics] = fake.calls[0]["tools"]
+    assert (calculator.name, analytics.name) == ("calculator", "analytics")
+    assert "organization" not in analytics.parameters["properties"]
 
 
 @pytest.mark.parametrize(
