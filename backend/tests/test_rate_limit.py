@@ -251,8 +251,72 @@ def test_redis_outage_blocks_chat_without_calling_the_model() -> None:
     assert response.status_code == 503
     assert response.json()["error"] == {
         "code": "rate_limit_unavailable",
-        "message": "Chat is temporarily unavailable. Try again shortly.",
+        "message": "Rate limiting is temporarily unavailable. Try again shortly.",
         "details": None,
     }
     assert "connection refused" not in response.text
     assert provider.calls == []
+
+
+def test_login_attempts_are_limited_per_email() -> None:
+    app = create_app(make_settings(auth_rate_limit_requests=1, auth_rate_limit_window_seconds=60))
+    clock = _Clock(960.0)
+    app.state.rate_limiter = RateLimiter(MemoryCounterStore(clock), clock)
+    client = TestClient(app, raise_server_exceptions=False)
+    ada = {"email": "ada@example.com", "password": "correct-horse-battery"}
+    grace = {"email": "grace@example.com", "password": "correct-horse-battery"}
+
+    first = client.post("/api/v1/auth/login", json=ada)
+    other = client.post("/api/v1/auth/login", json=grace)
+    second = client.post("/api/v1/auth/login", json=ada)
+
+    assert first.status_code == other.status_code == 500
+    assert first.json()["error"]["code"] == "database_not_configured"
+    assert second.status_code == 429
+    assert second.headers["retry-after"] == "60"
+    assert second.json()["error"]["message"] == "Too many attempts. Try again in 60 seconds."
+
+
+def test_invalid_login_does_not_consume_the_auth_limit() -> None:
+    app = create_app(make_settings(auth_rate_limit_requests=1))
+    clock = _Clock(960.0)
+    store = MemoryCounterStore(clock)
+    app.state.rate_limiter = RateLimiter(store, clock)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/api/v1/auth/login", json={"email": "not-an-email", "password": "short"}
+    )
+
+    assert response.status_code == 422
+    assert store._values == {}
+
+
+def test_registration_has_a_shared_limit() -> None:
+    app = create_app(
+        make_settings(
+            auth_rate_limit_requests=10,
+            register_rate_limit_requests=1,
+            register_rate_limit_window_seconds=60,
+        )
+    )
+    clock = _Clock(960.0)
+    app.state.rate_limiter = RateLimiter(MemoryCounterStore(clock), clock)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    def body(email: str) -> dict[str, str]:
+        return {
+            "email": email,
+            "name": "Ada",
+            "password": "correct-horse-battery",
+            "organization_name": "Acme",
+        }
+
+    first = client.post("/api/v1/auth/register", json=body("one@example.com"))
+    second = client.post("/api/v1/auth/register", json=body("two@example.com"))
+
+    assert first.status_code == 500
+    assert second.status_code == 429
+    assert second.json()["error"]["message"] == (
+        "Too many registration attempts. Try again in 60 seconds."
+    )

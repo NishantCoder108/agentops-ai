@@ -39,6 +39,16 @@ def test_production_requires_jwt_secret() -> None:
         make_settings(environment="production")
 
 
+def test_production_rejects_sql_echo() -> None:
+    with pytest.raises(ValidationError, match="DATABASE_ECHO"):
+        make_settings(
+            environment="production",
+            jwt_secret="x" * 32,
+            redis_url="redis://localhost:6379/0",
+            database_echo=True,
+        )
+
+
 def test_production_requires_redis_url() -> None:
     with pytest.raises(ValidationError, match="REDIS_URL"):
         make_settings(environment="production", jwt_secret="x" * 32)

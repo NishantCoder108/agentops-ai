@@ -1,7 +1,10 @@
+import json
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.exceptions import AppError
+from app.core.request_limit import MAX_REQUEST_BYTES, RequestBodyLimitMiddleware
 
 
 def test_unknown_route_uses_error_format(client: TestClient) -> None:
@@ -61,3 +64,56 @@ def test_unhandled_error_hides_internals(app: FastAPI, client: TestClient) -> No
             "details": None,
         }
     }
+
+
+def test_oversized_request_is_rejected(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        content=b"x" * (MAX_REQUEST_BYTES + 1),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "request_too_large"
+    assert response.json()["error"]["details"]["max_bytes"] == MAX_REQUEST_BYTES
+
+
+def test_request_at_the_size_limit_reaches_validation(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        content=b"x" * MAX_REQUEST_BYTES,
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_chunked_oversized_request_is_rejected() -> None:
+    called = False
+
+    async def app(scope: dict, receive: object, send: object) -> None:
+        del scope, receive, send
+        nonlocal called
+        called = True
+
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        return {
+            "type": "http.request",
+            "body": b"x" * (MAX_REQUEST_BYTES + 1),
+            "more_body": False,
+        }
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    await RequestBodyLimitMiddleware(app)(
+        {"type": "http", "method": "POST", "headers": []},
+        receive,
+        send,
+    )
+
+    assert called is False
+    assert sent[0]["status"] == 413
+    assert json.loads(sent[1]["body"])["error"]["code"] == "request_too_large"
