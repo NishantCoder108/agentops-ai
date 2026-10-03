@@ -4,18 +4,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.dependencies import close_llm_provider
+from app.api.dependencies import close_database, close_llm_provider
 from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
+from app.db.session import create_db_engine, create_session_factory
 from app.schemas.error import ErrorResponse
-from app.tools import create_default_tool_registry
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     await close_llm_provider(app)
+    await close_database(app)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -32,7 +33,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.llm_provider = None
-    app.state.tool_registry = create_default_tool_registry()
+    app.state.db_engine = create_db_engine(settings)
+    app.state.db_session_factory = (
+        create_session_factory(app.state.db_engine) if app.state.db_engine is not None else None
+    )
 
     app.add_middleware(
         CORSMiddleware,

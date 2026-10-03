@@ -1,9 +1,12 @@
+import uuid
 from enum import Enum
 from functools import lru_cache
 from typing import Annotated, Any
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+ASYNC_POSTGRES_SCHEME = "postgresql+asyncpg://"
 
 
 class Environment(str, Enum):
@@ -32,11 +35,33 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # SecretStr because the URL contains the database password.
+    database_url: SecretStr | None = None
+    database_echo: bool = False
+
+    # Organization whose data the agent's business tools may read. Stand-in until authentication
+    # provides the caller's organization; never taken from the LLM or the request body.
+    default_organization_id: uuid.UUID | None = None
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_cors_origins(cls, value: Any) -> Any:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("database_url", "default_organization_id", mode="before")
+    @classmethod
+    def empty_string_is_unset(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("database_url")
+    @classmethod
+    def check_database_driver(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not value.get_secret_value().startswith(ASYNC_POSTGRES_SCHEME):
+            raise ValueError(f"DATABASE_URL must start with {ASYNC_POSTGRES_SCHEME!r}")
         return value
 
     @model_validator(mode="after")

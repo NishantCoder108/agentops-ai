@@ -1,5 +1,7 @@
 import json
 import logging
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 
 from app.agent.errors import AgentMaxStepsExceededError
 from app.core.exceptions import AppError
@@ -18,6 +20,10 @@ DEFAULT_SYSTEM_PROMPT = (
 DEFAULT_MAX_STEPS = 5
 
 
+def _utc_today() -> date:
+    return datetime.now(UTC).date()
+
+
 class AgentService:
     """Agent orchestration: runs the LLM / tool-call loop.
 
@@ -31,18 +37,20 @@ class AgentService:
         *,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_steps: int = DEFAULT_MAX_STEPS,
+        today: Callable[[], date] = _utc_today,
     ) -> None:
         self._provider = provider
         self._tools = tools if tools is not None else ToolRegistry()
         self._system_prompt = system_prompt
         self._max_steps = max_steps
+        self._today = today
 
     async def run(self, message: str) -> str:
         if not message.strip():
             raise AppError("Message must not be empty", code="invalid_message", status_code=422)
 
         messages = [
-            ChatMessage(role="system", content=self._system_prompt),
+            ChatMessage(role="system", content=self.system_message()),
             ChatMessage(role="user", content=message),
         ]
         tool_definitions = self._tool_definitions() or None
@@ -67,6 +75,10 @@ class AgentService:
         raise AgentMaxStepsExceededError(
             f"Agent did not produce a final answer within {self._max_steps} steps"
         )
+
+    def system_message(self) -> str:
+        # The model has no clock; without the date it cannot resolve "last month" for analytics.
+        return f"{self._system_prompt}\nToday's date is {self._today().isoformat()} (UTC)."
 
     async def _run_tool(self, call: ToolCall) -> str:
         """Execute one tool call and return its JSON result, or a JSON error the model can react to."""
