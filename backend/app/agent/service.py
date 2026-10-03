@@ -1,9 +1,13 @@
 import json
 import logging
+import uuid
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.agent.errors import AgentMaxStepsExceededError
+from app.agent.tracking import RunTracker
 from app.core.exceptions import AppError
 from app.llm.base import LLMProvider
 from app.llm.types import ChatMessage, ToolCall, ToolDefinition
@@ -44,10 +48,24 @@ class AgentService:
         self._system_prompt = system_prompt
         self._max_steps = max_steps
         self._today = today
+        self.run_id: uuid.UUID | None = None
 
-    async def run(self, message: str) -> str:
+    async def run(
+        self,
+        message: str,
+        *,
+        session: AsyncSession | None = None,
+        conversation_id: uuid.UUID | None = None,
+    ) -> str:
         if not message.strip():
             raise AppError("Message must not be empty", code="invalid_message", status_code=422)
+        if (session is None) != (conversation_id is None):
+            raise ValueError("session and conversation_id must be provided together")
+
+        tracker = RunTracker(session, conversation_id) if session is not None and conversation_id is not None else None
+        if tracker is not None:
+            await tracker.start()
+            self.run_id = tracker.run_id
 
         messages = [
             ChatMessage(role="system", content=self.system_message()),
@@ -55,34 +73,52 @@ class AgentService:
         ]
         tool_definitions = self._tool_definitions() or None
 
-        for _ in range(self._max_steps):
-            response = await self._provider.generate(messages, tools=tool_definitions)
-            if not response.tool_calls:
-                return response.content
+        try:
+            for _ in range(self._max_steps):
+                response = await self._provider.generate(messages, tools=tool_definitions)
+                if not response.tool_calls:
+                    if tracker is not None:
+                        await tracker.complete(response.content)
+                    return response.content
 
-            messages.append(
-                ChatMessage(
-                    role="assistant",
-                    content=response.content or None,
-                    tool_calls=response.tool_calls,
-                )
-            )
-            for call in response.tool_calls:
                 messages.append(
-                    ChatMessage(role="tool", tool_call_id=call.id, content=await self._run_tool(call))
+                    ChatMessage(
+                        role="assistant",
+                        content=response.content or None,
+                        tool_calls=response.tool_calls,
+                    )
                 )
+                for call in response.tool_calls:
+                    messages.append(
+                        ChatMessage(
+                            role="tool", tool_call_id=call.id, content=await self._run_tool(call, tracker)
+                        )
+                    )
+        except Exception:
+            if tracker is not None:
+                await self._record_failure(tracker)
+            raise
 
+        if tracker is not None:
+            await self._record_failure(tracker)
         raise AgentMaxStepsExceededError(
             f"Agent did not produce a final answer within {self._max_steps} steps"
         )
+
+    async def _record_failure(self, tracker: RunTracker) -> None:
+        try:
+            await tracker.fail()
+        except Exception:
+            logger.exception("Could not record agent run failure")
 
     def system_message(self) -> str:
         # The model has no clock; without the date it cannot resolve "last month" for analytics.
         return f"{self._system_prompt}\nToday's date is {self._today().isoformat()} (UTC)."
 
-    async def _run_tool(self, call: ToolCall) -> str:
+    async def _run_tool(self, call: ToolCall, tracker: RunTracker | None) -> str:
         """Execute one tool call and return its JSON result, or a JSON error the model can react to."""
         logger.info("Agent calling tool %r", call.name)
+        record = await tracker.start_tool(call.name, call.arguments) if tracker is not None else None
         try:
             output = await self._tools.execute(call.name, call.arguments)
         except ToolError as exc:
@@ -90,8 +126,12 @@ class AgentService:
             error: dict[str, object] = {"error": exc.message}
             if exc.details is not None:
                 error["details"] = exc.details
-            return json.dumps(error)
-        return output.model_dump_json()
+            content = json.dumps(error)
+        else:
+            content = output.model_dump_json()
+        if record is not None and tracker is not None:
+            await tracker.finish_tool(record, content)
+        return content
 
     def _tool_definitions(self) -> list[ToolDefinition]:
         return [
