@@ -1,12 +1,13 @@
 """Events an agent run yields while it is still working."""
 
-class ClientDisconnected(Exception):
-    """The caller stopped listening before the run finished."""
-
 from dataclasses import dataclass
 from typing import Literal
 
 from app.schemas.agent import AgentResponse
+
+
+class ClientDisconnected(Exception):
+    """The caller stopped listening before the run finished."""
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,7 @@ and every table is truncated after each test.
 """
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -58,10 +59,14 @@ def database_url() -> str:
         )
     error = asyncio.run(_connection_error(url))
     if error is not None:
-        pytest.skip(
+        message = (
             f"PostgreSQL test database {database!r} is not reachable ({error}). "
             "Start it with `docker compose up -d postgres` from the repository root."
         )
+        # GitHub Actions sets CI. A missing database there must fail the run, not skip it.
+        if os.environ.get("CI"):
+            pytest.fail(message)
+        pytest.skip(message)
     return url
 
 
