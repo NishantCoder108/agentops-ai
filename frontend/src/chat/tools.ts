@@ -4,6 +4,10 @@ const TOOL_LABELS: Record<string, string> = {
   calculator: "Calculator",
 };
 
+export function toolLabel(tool: string): string {
+  return TOOL_LABELS[tool] ?? tool;
+}
+
 export function toolLabels(tools: string[]): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
@@ -12,7 +16,7 @@ export function toolLabels(tools: string[]): string[] {
       continue;
     }
     seen.add(tool);
-    labels.push(TOOL_LABELS[tool] ?? tool);
+    labels.push(toolLabel(tool));
   }
   return labels;
 }

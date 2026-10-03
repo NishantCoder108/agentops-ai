@@ -43,3 +43,22 @@ export type ConversationMessage = {
 export type ConversationDetail = ConversationSummary & {
   messages: ConversationMessage[];
 };
+
+export type AgentRunTool = {
+  tool_name: string;
+  status: string;
+  arguments: unknown;
+  result_summary: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
+export type AgentRun = {
+  id: string;
+  conversation_id: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  final_answer: string | null;
+  tool_calls: AgentRunTool[];
+};

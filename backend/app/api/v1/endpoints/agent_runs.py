@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.agent.presentation import present_tool_call
 from app.api.dependencies import get_db_session, require_permission
 from app.auth.permissions import Permission
 from app.models import AgentRun, Conversation, User
@@ -45,7 +46,16 @@ async def list_agent_runs(
             completed_at=run.completed_at,
             final_answer=run.final_answer,
             tool_calls=[
-                AgentRunToolResponse(tool_name=call.tool_name, status=call.status.value)
+                AgentRunToolResponse.model_validate(
+                    present_tool_call(
+                        tool_name=call.tool_name,
+                        status=call.status.value,
+                        arguments=call.arguments,
+                        result=call.result,
+                        started_at=call.started_at,
+                        completed_at=call.completed_at,
+                    )
+                )
                 for call in run.tool_calls
             ],
         )

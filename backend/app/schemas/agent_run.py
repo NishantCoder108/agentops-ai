@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -7,6 +8,10 @@ from pydantic import BaseModel
 class AgentRunToolResponse(BaseModel):
     tool_name: str
     status: str
+    arguments: Any
+    result_summary: str | None
+    started_at: datetime
+    completed_at: datetime | None
 
 
 class AgentRunResponse(BaseModel):
