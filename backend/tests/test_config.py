@@ -39,8 +39,21 @@ def test_production_requires_jwt_secret() -> None:
         make_settings(environment="production")
 
 
+def test_production_requires_redis_url() -> None:
+    with pytest.raises(ValidationError, match="REDIS_URL"):
+        make_settings(environment="production", jwt_secret="x" * 32)
+
+
 def test_production_disables_docs() -> None:
-    client = TestClient(create_app(make_settings(environment="production", jwt_secret="x" * 32)))
+    client = TestClient(
+        create_app(
+            make_settings(
+                environment="production",
+                jwt_secret="x" * 32,
+                redis_url="redis://localhost:6379/0",
+            )
+        )
+    )
 
     assert client.get("/docs").status_code == 404
     assert client.get("/openapi.json").status_code == 404
