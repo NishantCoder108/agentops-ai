@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -41,9 +43,40 @@ def test_chat_offers_only_calculator_without_database(client: TestClient, provid
     assert [tool.name for tool in provider.calls[0]["tools"]] == ["calculator"]
 
 
+class _Session:
+    """Enough of a database session to record a run without opening a connection."""
+
+    def add(self, obj: object) -> None:
+        if getattr(obj, "id", None) is None:
+            obj.id = uuid.uuid4()  # type: ignore[attr-defined]
+
+    async def flush(self) -> None:
+        return None
+
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+    async def get(self, model: object, key: object) -> None:
+        return None
+
+    async def __aenter__(self) -> "_Session":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+
+def _install_fake_database(app: FastAPI) -> None:
+    app.state.db_session_factory = lambda: _Session()
+
+
 def test_chat_offers_only_calculator_without_organization(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DEFAULT_ORGANIZATION_ID", raising=False)
     app = create_app(make_settings(database_url="postgresql+asyncpg://u:p@127.0.0.1:1/none"))
+    _install_fake_database(app)
     fake = FakeLLMProvider()
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
@@ -60,6 +93,7 @@ def test_chat_offers_analytics_with_database_and_organization() -> None:
             default_organization_id="7f1c7b7e-3c2e-4a59-9d39-2b0f5c3d8a10",
         )
     )
+    _install_fake_database(app)
     fake = FakeLLMProvider()
     app.dependency_overrides[get_llm_provider] = lambda: fake
 

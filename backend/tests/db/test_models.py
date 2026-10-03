@@ -212,111 +212,122 @@ async def test_order_with_refunds_cannot_be_deleted(db_session: AsyncSession, or
 # --- conversations and agent runs ---
 
 
-async def test_full_agent_run_is_persisted_and_reloaded(
+async def test_agent_run_records_tool_calls_in_order(
     db_session: AsyncSession,
     session_factory: async_sessionmaker[AsyncSession],
     user_message: Message,
 ) -> None:
-    run = AgentRun(input_message=user_message)
-    await add(db_session, run)
-    assert run.status == AgentRunStatus.RUNNING
+    from datetime import UTC, datetime, timedelta
 
-    # Assigning run.tool_calls would lazy-load the existing collection, which async sessions forbid.
-    answer = Message(conversation_id=user_message.conversation_id, role=MessageRole.ASSISTANT, content="200")
+    started = datetime(2026, 3, 1, tzinfo=UTC)
+    run = AgentRun(
+        conversation_id=user_message.conversation_id,
+        started_at=started,
+        status=AgentRunStatus.COMPLETED,
+        completed_at=started + timedelta(seconds=3),
+        final_answer="200",
+    )
+    await add(db_session, run)
     await add(
         db_session,
         ToolCall(
             agent_run_id=run.id,
-            sequence=1,
-            tool_name="calculator",
-            arguments='{"expression": "25 * 800 / 100"}',
-            result={"result": 200},
-            is_error=False,
+            tool_name="analytics",
+            arguments={"operation": "get_refund_summary"},
+            result={"refund_count": 3},
+            status="completed",
+            started_at=started + timedelta(seconds=1),
+            completed_at=started + timedelta(seconds=2),
         ),
         ToolCall(
             agent_run_id=run.id,
-            sequence=2,
             tool_name="calculator",
-            arguments="not json",
+            arguments={"expression": "1 + 1"},
             result={"error": "Invalid arguments for tool 'calculator'"},
-            is_error=True,
+            status="failed",
+            started_at=started + timedelta(seconds=2),
+            completed_at=started + timedelta(seconds=2, milliseconds=10),
         ),
-        answer,
     )
-    run.output_message = answer
-    run.status = AgentRunStatus.COMPLETED
-    run.model = "openai/gpt-4o-mini"
-    await db_session.commit()
 
     async with session_factory() as fresh:
         loaded = (
             await fresh.execute(
                 select(AgentRun)
                 .where(AgentRun.id == run.id)
-                .options(
-                    selectinload(AgentRun.input_message),
-                    selectinload(AgentRun.output_message),
-                    selectinload(AgentRun.tool_calls),
-                )
-            )
-        ).scalar_one()
-        conversation = (
-            await fresh.execute(
-                select(Conversation)
-                .where(Conversation.id == user_message.conversation_id)
-                .options(selectinload(Conversation.messages))
+                .options(selectinload(AgentRun.tool_calls))
             )
         ).scalar_one()
 
     assert loaded.status == AgentRunStatus.COMPLETED
-    assert loaded.input_message.content == "What is 25% of 800?"
-    assert loaded.output_message is not None and loaded.output_message.content == "200"
-    assert [(call.sequence, call.result, call.is_error) for call in loaded.tool_calls] == [
-        (1, {"result": 200}, False),
-        (2, {"error": "Invalid arguments for tool 'calculator'"}, True),
+    assert loaded.final_answer == "200"
+    assert loaded.completed_at is not None
+    assert [(call.tool_name, call.status, call.result) for call in loaded.tool_calls] == [
+        ("analytics", "completed", {"refund_count": 3}),
+        ("calculator", "failed", {"error": "Invalid arguments for tool 'calculator'"}),
     ]
-    assert [message.role for message in conversation.messages] == [MessageRole.USER, MessageRole.ASSISTANT]
 
 
 @pytest.mark.parametrize(
-    ("status", "error_code"),
-    [(AgentRunStatus.FAILED, None), (AgentRunStatus.COMPLETED, "llm_timeout")],
+    ("status", "final_answer", "constraint"),
+    [
+        ("completed", "done", "ck_agent_runs_completed_at_iff_finished"),
+        ("running", "done", "ck_agent_runs_final_answer_iff_completed"),
+        ("failed", None, "ck_agent_runs_completed_at_iff_finished"),
+    ],
 )
-async def test_agent_run_error_code_only_when_failed(
-    db_session: AsyncSession, user_message: Message, status: AgentRunStatus, error_code: str | None
+async def test_agent_run_status_constraints(
+    db_session: AsyncSession,
+    user_message: Message,
+    status: str,
+    final_answer: str | None,
+    constraint: str,
 ) -> None:
-    with pytest.raises(IntegrityError, match="ck_agent_runs_error_code_iff_failed"):
-        await add(db_session, AgentRun(input_message=user_message, status=status, error_code=error_code))
+    with pytest.raises(IntegrityError, match=constraint):
+        await add(
+            db_session,
+            AgentRun(
+                conversation_id=user_message.conversation_id,
+                status=status,
+                completed_at=None,
+                final_answer=final_answer,
+            ),
+        )
 
 
-async def test_failed_agent_run_with_error_code_is_valid(db_session: AsyncSession, user_message: Message) -> None:
-    run = AgentRun(input_message=user_message, status=AgentRunStatus.FAILED, error_code="llm_timeout")
+async def test_running_tool_call_has_no_result(db_session: AsyncSession, user_message: Message) -> None:
+    run = AgentRun(conversation_id=user_message.conversation_id)
     await add(db_session, run)
 
-    assert run.error_code == "llm_timeout"
-
-
-async def test_tool_call_sequence_is_unique_per_run(db_session: AsyncSession, user_message: Message) -> None:
-    def call(sequence: int) -> ToolCall:
-        return ToolCall(sequence=sequence, tool_name="calculator", arguments="{}", result={}, is_error=False)
-
-    run = AgentRun(input_message=user_message, tool_calls=[call(1)])
-    await add(db_session, run)
-
-    with pytest.raises(IntegrityError, match="uq_tool_calls_agent_run_id_sequence"):
-        duplicate = call(1)
-        duplicate.agent_run_id = run.id
-        await add(db_session, duplicate)
+    with pytest.raises(IntegrityError, match="ck_tool_calls_result_iff_finished"):
+        await add(
+            db_session,
+            ToolCall(
+                agent_run_id=run.id,
+                tool_name="calculator",
+                arguments={"expression": "1 + 1"},
+                result={"result": 2},
+                status="running",
+            ),
+        )
 
 
 async def test_deleting_conversation_cascades_to_messages_runs_and_tool_calls(
     db_session: AsyncSession, user_message: Message
 ) -> None:
-    run = AgentRun(
-        input_message=user_message,
-        tool_calls=[ToolCall(sequence=1, tool_name="calculator", arguments="{}", result={}, is_error=False)],
-    )
+    run = AgentRun(conversation_id=user_message.conversation_id)
     await add(db_session, run)
+    await add(
+        db_session,
+        ToolCall(
+            agent_run_id=run.id,
+            tool_name="calculator",
+            arguments={},
+            result={"result": 2},
+            status="completed",
+            completed_at=run.started_at,
+        ),
+    )
 
     await db_session.execute(delete(Conversation).where(Conversation.id == user_message.conversation_id))
     await db_session.commit()
@@ -331,26 +342,3 @@ async def test_deleting_user_cascades_to_conversations(db_session: AsyncSession,
 
     assert await count(db_session, Conversation) == 0
     assert await count(db_session, Message) == 0
-
-
-async def test_deleting_output_message_keeps_run_and_clears_link(
-    db_session: AsyncSession, session_factory: async_sessionmaker[AsyncSession], user_message: Message
-) -> None:
-    answer = Message(conversation_id=user_message.conversation_id, role=MessageRole.ASSISTANT, content="200")
-    run = AgentRun(input_message=user_message, output_message=answer, status=AgentRunStatus.COMPLETED)
-    await add(db_session, answer, run)
-
-    await db_session.execute(delete(Message).where(Message.id == answer.id))
-    await db_session.commit()
-
-    async with session_factory() as fresh:
-        reloaded = await fresh.get(AgentRun, run.id)
-    assert reloaded is not None and reloaded.output_message_id is None
-
-
-async def test_assistant_message_belongs_to_at_most_one_run(db_session: AsyncSession, user_message: Message) -> None:
-    answer = Message(conversation_id=user_message.conversation_id, role=MessageRole.ASSISTANT, content="200")
-    await add(db_session, answer, AgentRun(input_message=user_message, output_message=answer))
-
-    with pytest.raises(IntegrityError, match="uq_agent_runs_output_message_id"):
-        await add(db_session, AgentRun(input_message=user_message, output_message=answer))
