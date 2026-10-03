@@ -7,10 +7,18 @@ from datetime import UTC, date, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.errors import AgentMaxStepsExceededError
+from app.agent.grounding import (
+    KNOWLEDGE_ANSWER_INSTRUCTIONS,
+    KNOWLEDGE_TOOL_NAME,
+    RetrievedPassage,
+    ground_answer,
+    passages_from_tool_result,
+)
 from app.agent.tracking import RunTracker
 from app.core.exceptions import AppError
 from app.llm.base import LLMProvider
 from app.llm.types import ChatMessage, ToolCall, ToolDefinition
+from app.schemas.agent import AgentResponse
 from app.tools.errors import ToolError
 from app.tools.registry import ToolRegistry
 
@@ -56,7 +64,7 @@ class AgentService:
         *,
         session: AsyncSession | None = None,
         conversation_id: uuid.UUID | None = None,
-    ) -> str:
+    ) -> AgentResponse:
         if not message.strip():
             raise AppError("Message must not be empty", code="invalid_message", status_code=422)
         if (session is None) != (conversation_id is None):
@@ -72,14 +80,17 @@ class AgentService:
             ChatMessage(role="user", content=message),
         ]
         tool_definitions = self._tool_definitions() or None
+        tools_used: list[str] = []
+        passages: list[RetrievedPassage] = []
 
         try:
             for _ in range(self._max_steps):
                 response = await self._provider.generate(messages, tools=tool_definitions)
                 if not response.tool_calls:
+                    result = self._final_response(response.content, tools_used, passages)
                     if tracker is not None:
-                        await tracker.complete(response.content)
-                    return response.content
+                        await tracker.complete(result.answer)
+                    return result
 
                 messages.append(
                     ChatMessage(
@@ -89,11 +100,12 @@ class AgentService:
                     )
                 )
                 for call in response.tool_calls:
-                    messages.append(
-                        ChatMessage(
-                            role="tool", tool_call_id=call.id, content=await self._run_tool(call, tracker)
-                        )
-                    )
+                    content = await self._run_tool(call, tracker)
+                    if call.name not in tools_used:
+                        tools_used.append(call.name)
+                    if call.name == KNOWLEDGE_TOOL_NAME:
+                        passages.extend(passages_from_tool_result(content))
+                    messages.append(ChatMessage(role="tool", tool_call_id=call.id, content=content))
         except Exception:
             if tracker is not None:
                 await self._record_failure(tracker)
@@ -113,7 +125,17 @@ class AgentService:
 
     def system_message(self) -> str:
         # The model has no clock; without the date it cannot resolve "last month" for analytics.
-        return f"{self._system_prompt}\nToday's date is {self._today().isoformat()} (UTC)."
+        prompt = self._system_prompt
+        if any(tool.name == KNOWLEDGE_TOOL_NAME for tool in self._tools.list_tools()):
+            prompt = f"{prompt}\n{KNOWLEDGE_ANSWER_INSTRUCTIONS}"
+        return f"{prompt}\nToday's date is {self._today().isoformat()} (UTC)."
+
+    def _final_response(
+        self, content: str, tools_used: list[str], passages: list[RetrievedPassage]
+    ) -> AgentResponse:
+        if KNOWLEDGE_TOOL_NAME in tools_used:
+            return ground_answer(content, passages, tools_used)
+        return AgentResponse(answer=content, tools_used=tools_used)
 
     async def _run_tool(self, call: ToolCall, tracker: RunTracker | None) -> str:
         """Execute one tool call and return its JSON result, or a JSON error the model can react to."""

@@ -54,7 +54,7 @@ async def test_agent_records_run_and_tool_calls_in_order(
 
     answer = await agent.run("Summarize January", session=db_session, conversation_id=conversation.id)
 
-    assert answer == "Net of the refunds, 25% of 800 is 200."
+    assert answer.answer == "Net of the refunds, 25% of 800 is 200."
     async with session_factory() as fresh:
         run = (
             await fresh.execute(
@@ -66,7 +66,7 @@ async def test_agent_records_run_and_tool_calls_in_order(
 
     assert run.conversation_id == conversation.id
     assert run.status == AgentRunStatus.COMPLETED
-    assert run.final_answer == answer
+    assert run.final_answer == answer.answer
     assert run.started_at < run.tool_calls[0].started_at
     assert run.completed_at is not None and run.completed_at >= run.tool_calls[-1].completed_at
     assert [call.tool_name for call in run.tool_calls] == ["analytics", "calculator"]

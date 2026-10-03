@@ -37,14 +37,19 @@ async def chat(
 ) -> ChatResponse:
     session_factory: async_sessionmaker[AsyncSession] | None = request.app.state.db_session_factory
     if session_factory is None:
-        return ChatResponse(answer=await agent.run(payload.message))
+        result = await agent.run(payload.message)
+        return ChatResponse(answer=result.answer, sources=result.sources, tools_used=result.tools_used)
 
     async with session_factory() as session:
         conversation_id = await _conversation_id(session, payload.conversation_id)
-        answer = await agent.run(
-            payload.message, session=session, conversation_id=conversation_id
+        result = await agent.run(payload.message, session=session, conversation_id=conversation_id)
+        return ChatResponse(
+            answer=result.answer,
+            sources=result.sources,
+            tools_used=result.tools_used,
+            conversation_id=conversation_id,
+            run_id=agent.run_id,
         )
-        return ChatResponse(answer=answer, conversation_id=conversation_id, run_id=agent.run_id)
 
 
 async def _conversation_id(session: AsyncSession, conversation_id: uuid.UUID | None) -> uuid.UUID:

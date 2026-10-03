@@ -3,6 +3,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from app.schemas.agent import AgentResponse
+
 MAX_MESSAGE_LENGTH = 8000
 
 
@@ -15,7 +17,6 @@ class ChatRequest(BaseModel):
     conversation_id: uuid.UUID | None = None
 
 
-class ChatResponse(BaseModel):
-    answer: str
+class ChatResponse(AgentResponse):
     conversation_id: uuid.UUID | None = None
     run_id: uuid.UUID | None = None

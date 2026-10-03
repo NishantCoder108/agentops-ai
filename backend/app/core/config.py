@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # Embedding model for document search, e.g. openai/text-embedding-3-small. Uses OPENROUTER_API_KEY.
+    embedding_model: str | None = None
+
     # SecretStr because the URL contains the database password.
     database_url: SecretStr | None = None
     database_echo: bool = False
@@ -50,7 +53,7 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("database_url", "default_organization_id", mode="before")
+    @field_validator("database_url", "default_organization_id", "embedding_model", mode="before")
     @classmethod
     def empty_string_is_unset(cls, value: Any) -> Any:
         if isinstance(value, str) and not value.strip():

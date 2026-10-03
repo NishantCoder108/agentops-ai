@@ -3,6 +3,7 @@
 from app.models.agent_run import AgentRun, AgentRunStatus, ToolCall, ToolCallStatus
 from app.models.commerce import Customer, Order, OrderStatus, Refund, RefundStatus
 from app.models.conversation import Conversation, Message, MessageRole
+from app.models.document import Document, DocumentChunk, DocumentFormat
 from app.models.organization import Organization, User
 
 __all__ = [
@@ -10,6 +11,9 @@ __all__ = [
     "AgentRunStatus",
     "Conversation",
     "Customer",
+    "Document",
+    "DocumentChunk",
+    "DocumentFormat",
     "Message",
     "MessageRole",
     "Order",

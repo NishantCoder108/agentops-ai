@@ -52,7 +52,7 @@ class KnowledgeService:
         distance = DocumentChunk.embedding.cosine_distance(vector)
         similarity = (1 - distance).label("similarity")
         rows = await self._session.execute(
-            select(Document.filename, DocumentChunk.content, similarity)
+            select(Document.id, Document.filename, DocumentChunk.content, similarity)
             .join(Document, DocumentChunk.document_id == Document.id)
             .where(Document.organization_id == self._organization_id)
             .order_by(distance, DocumentChunk.position)
@@ -61,11 +61,12 @@ class KnowledgeService:
         return KnowledgeSearchResult(
             results=[
                 KnowledgeHit(
+                    document_id=document_id,
                     document=filename,
                     chunk=content,
                     similarity=_score(score),
                 )
-                for filename, content, score in rows
+                for document_id, filename, content, score in rows
             ]
         )
 

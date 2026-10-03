@@ -3,7 +3,8 @@ name: agentops
 
 services:
   postgres:
-    image: postgres:18-alpine
+    # Official Postgres image plus the pgvector extension (the stock postgres image does not ship it).
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agentops}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentops}

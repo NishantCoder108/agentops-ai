@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     "messages",
     "agent_runs",
     "tool_calls",
+    "documents",
+    "document_chunks",
 }
 
 

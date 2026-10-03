@@ -26,7 +26,7 @@ def test_chat_returns_agent_answer(client: TestClient, provider: FakeLLMProvider
     response = client.post("/api/v1/chat", json={"message": "Hello"})
 
     assert response.status_code == 200
-    assert response.json() == {"answer": "Hi! How can I help?"}
+    assert response.json() == {"answer": "Hi! How can I help?", "sources": [], "tools_used": []}
 
 
 def test_chat_passes_message_to_provider(client: TestClient, provider: FakeLLMProvider) -> None:
@@ -144,7 +144,11 @@ def test_chat_runs_calculator_tool_and_returns_final_answer(app: FastAPI, client
     response = client.post("/api/v1/chat", json={"message": "What is 25% of 800?"})
 
     assert response.status_code == 200
-    assert response.json() == {"answer": "25% of 800 is 200."}
+    assert response.json() == {
+        "answer": "25% of 800 is 200.",
+        "sources": [],
+        "tools_used": ["calculator"],
+    }
     assert [tool.name for tool in fake.calls[0]["tools"]] == ["calculator"]
     assert fake.calls[1]["messages"][-1] == ChatMessage(
         role="tool", tool_call_id="call_1", content='{"result":200}'

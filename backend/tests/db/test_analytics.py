@@ -352,7 +352,7 @@ async def test_agent_answers_with_analytics_tool(
 
     answer = await AgentService(provider, registry).run("How many refunds did we have in January?")
 
-    assert answer == "There were 3 refunds in January."
+    assert answer.answer == "There were 3 refunds in January."
     assert [tool.name for tool in provider.calls[0]["tools"]] == ["calculator", "analytics"]
     tool_message = provider.calls[1]["messages"][-1]
     assert tool_message.role == "tool"

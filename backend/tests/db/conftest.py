@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.db.base import Base
-from app.db.session import create_session_factory
+from app.db.session import create_session_factory, prepare_engine
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -96,7 +96,7 @@ def clean_database(migrated_database: str) -> Iterator[str]:
 
 @pytest.fixture
 async def db_engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
-    engine = create_async_engine(migrated_database, poolclass=NullPool)
+    engine = prepare_engine(create_async_engine(migrated_database, poolclass=NullPool))
     yield engine
     await _truncate_all_tables(engine)
     await engine.dispose()

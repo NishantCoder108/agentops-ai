@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.agent.service import AgentService
 from app.core.config import Settings
 from app.db.errors import DatabaseNotConfiguredError
+from app.knowledge.embeddings import EmbeddingProvider, create_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import create_llm_provider
 from app.tools import create_default_tool_registry
@@ -36,12 +37,32 @@ def get_current_organization_id(
     return settings.default_organization_id
 
 
+def get_embedding_provider(
+    request: Request, settings: Annotated[Settings, Depends(get_app_settings)]
+) -> EmbeddingProvider:
+    provider: EmbeddingProvider | None = request.app.state.embedding_provider
+    if provider is None:
+        provider = create_embedding_provider(settings)
+        request.app.state.embedding_provider = provider
+    return provider
+
+
+def _optional_embedding_provider(request: Request, settings: Settings) -> EmbeddingProvider | None:
+    api_key = settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else ""
+    if not settings.embedding_model or not api_key:
+        return None
+    return get_embedding_provider(request, settings)
+
+
 def get_tool_registry(
     request: Request,
+    settings: Annotated[Settings, Depends(get_app_settings)],
     organization_id: Annotated[uuid.UUID | None, Depends(get_current_organization_id)],
 ) -> ToolRegistry:
     return create_default_tool_registry(
-        session_factory=request.app.state.db_session_factory, organization_id=organization_id
+        session_factory=request.app.state.db_session_factory,
+        organization_id=organization_id,
+        embedder=_optional_embedding_provider(request, settings),
     )
 
 
@@ -59,6 +80,13 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
         raise DatabaseNotConfiguredError()
     async with session_factory() as session:
         yield session
+
+
+async def close_embedding_provider(app: FastAPI) -> None:
+    provider: EmbeddingProvider | None = app.state.embedding_provider
+    if provider is not None:
+        app.state.embedding_provider = None
+        await provider.aclose()
 
 
 async def close_llm_provider(app: FastAPI) -> None:

@@ -9,6 +9,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 if TYPE_CHECKING:
     from app.models.commerce import Customer
     from app.models.conversation import Conversation
+    from app.models.document import Document
 
 
 class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -20,6 +21,7 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     users: Mapped[list["User"]] = relationship(back_populates="organization")
     customers: Mapped[list["Customer"]] = relationship(back_populates="organization")
+    documents: Mapped[list["Document"]] = relationship(back_populates="organization")
 
 
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):

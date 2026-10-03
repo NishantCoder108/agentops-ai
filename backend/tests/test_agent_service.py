@@ -35,7 +35,7 @@ def agent(provider: FakeLLMProvider) -> AgentService:
 
 
 async def test_run_returns_model_answer(agent: AgentService) -> None:
-    assert await agent.run("Hello") == "Hi there!"
+    assert (await agent.run("Hello")).answer == "Hi there!"
 
 
 async def test_run_sends_system_prompt_with_date_and_user_message(
@@ -104,7 +104,7 @@ async def test_run_offers_registered_tools_to_the_model() -> None:
 async def test_answer_without_tool_call_needs_one_llm_call() -> None:
     provider = FakeLLMProvider(responses=[answer_response("Hi!")])
 
-    assert await calculator_agent(provider).run("Hello") == "Hi!"
+    assert (await calculator_agent(provider).run("Hello")).answer == "Hi!"
     assert len(provider.calls) == 1
 
 
@@ -116,7 +116,9 @@ async def test_tool_call_flow_executes_tool_and_returns_final_answer() -> None:
 
     answer = await calculator_agent(provider).run("What is 25% of 800?")
 
-    assert answer == "25% of 800 is 200."
+    assert answer.answer == "25% of 800 is 200."
+    assert answer.sources == []
+    assert answer.tools_used == ["calculator"]
     assert len(provider.calls) == 2
     assert provider.calls[1]["messages"] == [
         ChatMessage(role="system", content=EXPECTED_SYSTEM_MESSAGE),
@@ -134,7 +136,7 @@ async def test_multiple_tool_calls_in_one_turn_are_all_answered_in_order() -> No
         ]
     )
 
-    assert await calculator_agent(provider).run("2+2 and 3*3?") == "4 and 9"
+    assert (await calculator_agent(provider).run("2+2 and 3*3?")).answer == "4 and 9"
 
     tool_messages = [m for m in provider.calls[1]["messages"] if m.role == "tool"]
     assert [(m.tool_call_id, m.content) for m in tool_messages] == [
@@ -152,7 +154,7 @@ async def test_sequential_tool_calls_across_steps() -> None:
         ]
     )
 
-    assert await calculator_agent(provider).run("25% of 800, plus 50?") == "250"
+    assert (await calculator_agent(provider).run("25% of 800, plus 50?")).answer == "250"
     assert len(provider.calls) == 3
     assert provider.calls[2]["messages"][-1] == ChatMessage(
         role="tool", tool_call_id="call_2", content='{"result":250}'
@@ -179,7 +181,7 @@ async def test_tool_errors_are_returned_to_the_model(call: ToolCall, expected_er
 
     answer = await calculator_agent(provider).run("Calculate something")
 
-    assert answer == "Sorry, I could not calculate that."
+    assert answer.answer == "Sorry, I could not calculate that."
     tool_message = provider.calls[1]["messages"][-1]
     assert tool_message.role == "tool"
     assert tool_message.tool_call_id == "call_1"
