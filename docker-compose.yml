@@ -1,4 +1,4 @@
-# Local development services only. Not a production deployment.
+# Local development stack. Secrets are read from the project .env file, not stored here.
 name: agentops
 
 services:
@@ -7,10 +7,9 @@ services:
     image: pgvector/pgvector:pg18
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agentops}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file. Copy .env.example to .env.}
       POSTGRES_DB: ${POSTGRES_DB:-agentops}
     ports:
-      # Bound to localhost only, so the dev database is not reachable from the network.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       # PostgreSQL 18+ images keep data under /var/lib/postgresql/<major>/, so mount the parent.
@@ -24,7 +23,6 @@ services:
 
   redis:
     # Chat rate-limit counters only. No volume: a restart clears the window, which is safe.
-    # The app ignores this service until REDIS_URL is set.
     image: redis:8-alpine
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
@@ -34,6 +32,53 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agentops}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-agentops}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the project .env file. Copy .env.example to .env.}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-openai/gpt-4o-mini}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
 volumes:
   postgres-data:
