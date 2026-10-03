@@ -11,6 +11,7 @@ from app.agent.grounding import (
     KNOWLEDGE_ANSWER_INSTRUCTIONS,
     KNOWLEDGE_TOOL_NAME,
     RetrievedPassage,
+    answer_without_search,
     ground_answer,
     passages_from_tool_result,
 )
@@ -72,7 +73,7 @@ class AgentService:
 
         tracker = RunTracker(session, conversation_id) if session is not None and conversation_id is not None else None
         if tracker is not None:
-            await tracker.start()
+            await tracker.start(message)
             self.run_id = tracker.run_id
 
         messages = [
@@ -135,7 +136,7 @@ class AgentService:
     ) -> AgentResponse:
         if KNOWLEDGE_TOOL_NAME in tools_used:
             return ground_answer(content, passages, tools_used)
-        return AgentResponse(answer=content, tools_used=tools_used)
+        return answer_without_search(content, tools_used)
 
     async def _run_tool(self, call: ToolCall, tracker: RunTracker | None) -> str:
         """Execute one tool call and return its JSON result, or a JSON error the model can react to."""

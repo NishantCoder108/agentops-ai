@@ -11,7 +11,7 @@ from app.agent import AgentService
 from app.api.dependencies import get_llm_provider
 from app.llm import LLMProviderError, ToolCall
 from app.main import create_app
-from app.models import AgentRun, AgentRunStatus, Conversation, ToolCallStatus
+from app.models import AgentRun, AgentRunStatus, Conversation, Message, MessageRole, ToolCallStatus
 from app.models import ToolCall as ToolCallRecord
 from app.tools import CalculatorTool, ToolRegistry
 from tests.auth_helpers import JWT_SECRET, PASSWORD, bearer, login, register
@@ -64,7 +64,14 @@ async def test_agent_records_run_and_tool_calls_in_order(
                 .options(selectinload(AgentRun.tool_calls))
             )
         ).scalar_one()
+        stored_messages = (
+            await fresh.scalars(select(Message).order_by(Message.created_at))
+        ).all()
 
+    assert [(message.role, message.content) for message in stored_messages] == [
+        (MessageRole.USER, "Summarize January"),
+        (MessageRole.ASSISTANT, answer.answer),
+    ]
     assert run.conversation_id == conversation.id
     assert run.status == AgentRunStatus.COMPLETED
     assert run.final_answer == answer.answer
@@ -106,12 +113,16 @@ async def test_failed_run_stores_no_exception_text(
     async with session_factory() as fresh:
         run = (await fresh.execute(select(AgentRun).where(AgentRun.id == agent.run_id))).scalar_one()
         calls = (await fresh.execute(select(ToolCallRecord))).scalars().all()
+        stored_messages = (await fresh.scalars(select(Message))).all()
 
     assert run.status == AgentRunStatus.FAILED
     assert run.final_answer is None
     assert run.completed_at is not None
     assert secret not in json.dumps({"answer": run.final_answer, "status": run.status})
     assert calls == []
+    assert [(message.role, message.content) for message in stored_messages] == [
+        (MessageRole.USER, "Hello"),
+    ]
 
 
 @pytest.mark.anyio
@@ -176,6 +187,15 @@ def test_chat_persists_a_run_and_reuses_the_conversation(clean_database: str) ->
         assert second.status_code == 200
         assert second.json()["conversation_id"] == body["conversation_id"]
         assert second.json()["run_id"] != body["run_id"]
+
+        history = client.get(f"/api/v1/conversations/{body['conversation_id']}", headers=headers)
+        assert history.status_code == 200
+        assert [(item["role"], item["content"]) for item in history.json()["messages"]] == [
+            ("user", "What is 2 + 2?"),
+            ("assistant", "4"),
+            ("user", "And again?"),
+            ("assistant", "Still 4"),
+        ]
 
         missing = client.post(
             "/api/v1/chat",

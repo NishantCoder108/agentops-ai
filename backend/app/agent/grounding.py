@@ -14,6 +14,7 @@ from app.schemas.knowledge import KnowledgeSearchResult
 KNOWLEDGE_TOOL_NAME = "search_knowledge"
 INSUFFICIENT_ANSWER = "I do not have enough information to answer that."
 KNOWLEDGE_ANSWER_INSTRUCTIONS = (
+    "If you did not call search_knowledge, reply in plain text. "
     "After you call search_knowledge, your final reply must be a JSON object with exactly two keys: "
     '"answer" and "document_ids". '
     "document_ids must be a list of document_id values taken from that tool's results. "
@@ -48,6 +49,23 @@ def passages_from_tool_result(content: str) -> list[RetrievedPassage]:
         RetrievedPassage(document_id=hit.document_id, document_name=hit.document, excerpt=hit.chunk)
         for hit in result.results
     ]
+
+
+def answer_without_search(content: str, tools_used: list[str]) -> AgentResponse:
+    """Use a plain-text reply. Unwrap the knowledge JSON envelope only when it cites nothing."""
+    stripped = content.strip()
+    if not stripped.startswith("{"):
+        return AgentResponse(answer=content, tools_used=tools_used)
+    try:
+        output = _GroundedModelOutput.model_validate_json(stripped)
+    except ValidationError:
+        return AgentResponse(answer=content, tools_used=tools_used)
+    if output.document_ids:
+        raise AgentInvalidOutputError(
+            "The model cited documents without using the knowledge search",
+            details={"document_ids": [str(document_id) for document_id in output.document_ids]},
+        )
+    return AgentResponse(answer=output.answer, tools_used=tools_used)
 
 
 def ground_answer(content: str, passages: list[RetrievedPassage], tools_used: list[str]) -> AgentResponse:

@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AgentRun, AgentRunStatus, ToolCall, ToolCallStatus
+from app.models import AgentRun, AgentRunStatus, Message, MessageRole, ToolCall, ToolCallStatus
 
 _SECRET_KEY_PARTS = ("api_key", "apikey", "password", "secret", "token", "authorization", "credential")
 _REDACTED = "[redacted]"
@@ -50,13 +50,20 @@ class RunTracker:
         self.run: AgentRun | None = None
         self.run_id: uuid.UUID | None = None
 
-    async def start(self) -> AgentRun:
+    async def start(self, user_message: str) -> AgentRun:
         self.run = AgentRun(
             conversation_id=self._conversation_id,
             status=AgentRunStatus.RUNNING,
             started_at=utcnow(),
         )
         self._session.add(self.run)
+        self._session.add(
+            Message(
+                conversation_id=self._conversation_id,
+                role=MessageRole.USER,
+                content=user_message,
+            )
+        )
         await self._session.commit()
         self.run_id = self.run.id
         return self.run
@@ -86,6 +93,13 @@ class RunTracker:
         run.status = AgentRunStatus.COMPLETED
         run.final_answer = answer
         run.completed_at = utcnow()
+        self._session.add(
+            Message(
+                conversation_id=self._conversation_id,
+                role=MessageRole.ASSISTANT,
+                content=answer,
+            )
+        )
         await self._session.commit()
 
     async def fail(self) -> None:

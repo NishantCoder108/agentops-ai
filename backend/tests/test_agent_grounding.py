@@ -6,6 +6,7 @@ import pytest
 from app.agent import AgentInvalidOutputError, AgentService
 from app.llm import ToolCall
 from app.schemas.knowledge import KnowledgeHit, KnowledgeSearchResult
+from app.tools import CalculatorTool
 from app.tools.knowledge import KnowledgeSearchInput
 from app.tools.registry import ToolRegistry
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
@@ -121,6 +122,38 @@ async def test_invalid_model_output_is_rejected(final: str) -> None:
         KnowledgeSearchResult(results=[_hit(POLICY_ID, "policy.md", POLICY)]),
         final,
     )
+
+    with pytest.raises(AgentInvalidOutputError) as exc_info:
+        await agent.run("What is the refund window?")
+
+    assert exc_info.value.code == "agent_invalid_output"
+
+
+async def test_calculator_answer_unwraps_an_empty_citation_envelope() -> None:
+    call = ToolCall(id="call_1", name="calculator", arguments=json.dumps({"expression": "12 * 8"}))
+    provider = FakeLLMProvider(
+        responses=[
+            tool_call_response(call),
+            answer_response(json.dumps({"answer": "96", "document_ids": []})),
+        ]
+    )
+    agent = AgentService(
+        provider,
+        ToolRegistry([CalculatorTool(), _KnowledgeTool(KnowledgeSearchResult(results=[]))]),
+    )
+
+    response = await agent.run("What is 12 * 8?")
+
+    assert response.answer == "96"
+    assert response.sources == []
+    assert response.tools_used == ["calculator"]
+
+
+async def test_citations_without_a_knowledge_search_are_rejected() -> None:
+    provider = FakeLLMProvider(
+        responses=[answer_response(json.dumps({"answer": "Thirty days.", "document_ids": [str(POLICY_ID)]}))]
+    )
+    agent = AgentService(provider, ToolRegistry([_KnowledgeTool(KnowledgeSearchResult(results=[]))]))
 
     with pytest.raises(AgentInvalidOutputError) as exc_info:
         await agent.run("What is the refund window?")
