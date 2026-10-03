@@ -43,7 +43,7 @@ def test_single_migration_head() -> None:
     assert len(script.get_heads()) == 1
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_migrations_match_models(db_engine: AsyncEngine) -> None:
     def diff(connection: Connection) -> list:
         context = MigrationContext.configure(connection, opts={"compare_type": True})

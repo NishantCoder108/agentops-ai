@@ -23,7 +23,7 @@ from app.models import (
     User,
 )
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 async def add(session: AsyncSession, *objects: object) -> None:
