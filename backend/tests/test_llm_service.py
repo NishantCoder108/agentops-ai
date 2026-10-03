@@ -5,7 +5,7 @@ from app.llm import ChatMessage, LLMProvider
 from app.services.llm_service import LLMService
 from tests.fakes import FakeLLMProvider
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture

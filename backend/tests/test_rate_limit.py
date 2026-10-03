@@ -21,8 +21,6 @@ from tests.auth_helpers import install_user
 from tests.conftest import make_settings
 from tests.fakes import FakeLLMProvider
 
-pytestmark = pytest.mark.anyio
-
 
 class _Clock:
     def __init__(self, now: float) -> None:

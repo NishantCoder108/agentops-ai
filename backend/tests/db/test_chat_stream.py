@@ -7,7 +7,7 @@ from app.agent.service import AgentService
 from app.models import AgentRun, AgentRunStatus, Conversation, Message, MessageRole
 from tests.fakes import FakeLLMProvider
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 async def test_closing_a_stream_fails_the_open_run(

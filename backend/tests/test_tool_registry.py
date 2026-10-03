@@ -104,7 +104,7 @@ def test_default_registry_contains_calculator() -> None:
 # --- execution ---
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_execute_validates_arguments_and_runs_tool() -> None:
     registry = ToolRegistry([EchoTool()])
 
@@ -113,13 +113,13 @@ async def test_execute_validates_arguments_and_runs_tool() -> None:
     assert output == EchoOutput(text="hi")
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_execute_unknown_tool_raises_not_found() -> None:
     with pytest.raises(ToolNotFoundError):
         await ToolRegistry().execute("missing", "{}")
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "raw_arguments",
     [
@@ -141,7 +141,7 @@ async def test_execute_rejects_invalid_arguments(raw_arguments: str) -> None:
     assert exc_info.value.details
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_execute_passes_through_expected_tool_errors() -> None:
     registry = ToolRegistry([FailingTool()])
 
@@ -149,7 +149,7 @@ async def test_execute_passes_through_expected_tool_errors() -> None:
         await registry.execute("failing", json.dumps({"text": "hi"}))
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_execute_hides_unexpected_tool_errors() -> None:
     registry = ToolRegistry([BrokenTool()])
 

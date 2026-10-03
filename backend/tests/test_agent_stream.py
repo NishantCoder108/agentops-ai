@@ -8,7 +8,7 @@ from app.llm.streaming import LLMStreamPart
 from app.llm.types import ChatMessage, LLMResponse, ToolCall, ToolDefinition
 from app.tools import CalculatorTool, ToolRegistry
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 
 class _StreamingProvider:

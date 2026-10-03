@@ -36,7 +36,7 @@ def test_whole_number_results_are_returned_as_int() -> None:
     assert isinstance(result, int)
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_calculator_tool_returns_result_model() -> None:
     output = await CalculatorTool().run(CalculatorInput(expression="25 * 800 / 100"))
 
@@ -44,7 +44,7 @@ async def test_calculator_tool_returns_result_model() -> None:
     assert output.model_dump_json() == '{"result":200}'
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_calculator_via_registry_with_json_arguments() -> None:
     registry = ToolRegistry([CalculatorTool()])
 

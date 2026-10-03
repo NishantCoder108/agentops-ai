@@ -9,7 +9,7 @@ from app.llm import ChatMessage, LLMProvider, LLMProviderError, ToolCall
 from app.tools import CalculatorTool, ToolRegistry
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 TODAY = date(2026, 3, 15)
 EXPECTED_SYSTEM_MESSAGE = f"{DEFAULT_SYSTEM_PROMPT}\nToday's date is 2026-03-15 (UTC)."

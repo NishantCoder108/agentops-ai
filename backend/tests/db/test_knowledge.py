@@ -1,6 +1,5 @@
 import json
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,8 +15,6 @@ from tests.auth_helpers import JWT_SECRET, bearer, register
 from tests.conftest import make_settings
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 from tests.test_knowledge import _FakeEmbedder, vector_for
-
-pytestmark = pytest.mark.anyio
 
 
 async def test_search_returns_the_nearest_chunk_for_this_organization(

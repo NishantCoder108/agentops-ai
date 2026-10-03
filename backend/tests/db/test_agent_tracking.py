@@ -19,7 +19,7 @@ from tests.conftest import make_settings
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_agent_records_run_and_tool_calls_in_order(
     db_session: AsyncSession, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -97,7 +97,7 @@ async def test_agent_records_run_and_tool_calls_in_order(
     assert calculator_call.completed_at - calculator_call.started_at < timedelta(seconds=5)
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_failed_run_stores_no_exception_text(
     db_session: AsyncSession, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -125,7 +125,7 @@ async def test_failed_run_stores_no_exception_text(
     ]
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_invalid_tool_arguments_are_stored_without_being_executed_as_code(
     db_session: AsyncSession, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

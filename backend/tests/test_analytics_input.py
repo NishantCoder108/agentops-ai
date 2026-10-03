@@ -108,7 +108,7 @@ def test_schema_is_a_flat_object_with_an_operation_enum() -> None:
     ]
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_registry_rejects_invalid_analytics_arguments_before_touching_the_database() -> None:
     # The session factory points at a closed port: any database access would fail loudly.
     engine = create_async_engine("postgresql+asyncpg://u:p@127.0.0.1:1/none")

@@ -7,7 +7,7 @@ import pytest
 from app.llm import ChatMessage, LLMProviderError, ToolCall, ToolDefinition
 from app.llm.providers.openrouter import OpenRouterProvider
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 BASE_URL = "https://openrouter.test/api/v1"
 

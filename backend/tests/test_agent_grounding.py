@@ -11,7 +11,7 @@ from app.tools.knowledge import KnowledgeSearchInput
 from app.tools.registry import ToolRegistry
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 POLICY_ID = uuid.UUID("7f1c7b7e-3c2e-4a59-9d39-2b0f5c3d8a10")
 SHIPPING_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")

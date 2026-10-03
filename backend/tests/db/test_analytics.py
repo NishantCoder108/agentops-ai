@@ -39,7 +39,7 @@ from app.services.analytics_service import AnalyticsService
 from app.tools import AnalyticsInput, AnalyticsTool, create_default_tool_registry
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 
-pytestmark = pytest.mark.anyio
+pytestmark = pytest.mark.asyncio
 
 JANUARY = Period(start_date=date(2026, 1, 1), end_date=date(2026, 1, 31))
 
