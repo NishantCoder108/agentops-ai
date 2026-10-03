@@ -172,6 +172,82 @@ async def test_generate_maps_http_error_to_provider_error() -> None:
     assert exc_info.value.details == {"provider_status": 500}
 
 
+def _chunk(delta: dict, finish_reason: str | None = None) -> dict:
+    return {
+        "id": "gen-1",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "test/model",
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+    }
+
+
+def _sse(payload: dict | str) -> bytes:
+    if payload == "[DONE]":
+        return b"data: [DONE]\n\n"
+    return f"data: {json.dumps(payload)}\n\n".encode()
+
+
+async def test_stream_yields_content_deltas_then_the_assembled_response() -> None:
+    body = b"".join(
+        [
+            _sse(_chunk({"role": "assistant", "content": "Hi"})),
+            _sse(_chunk({"content": " there"})),
+            _sse(_chunk({}, finish_reason="stop")),
+            _sse("[DONE]"),
+        ]
+    )
+    provider = make_provider(
+        lambda _: httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+    )
+
+    parts = [part async for part in provider.stream([ChatMessage(role="user", content="Hello")])]
+    await provider.aclose()
+
+    assert [part.text for part in parts[:-1]] == ["Hi", " there"]
+    response = parts[-1].response
+    assert response is not None
+    assert response.content == "Hi there"
+    assert response.finish_reason == "stop"
+
+
+async def test_stream_announces_a_tool_and_assembles_its_arguments() -> None:
+    body = b"".join(
+        [
+            _sse(
+                _chunk(
+                    {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "analytics", "arguments": ""},
+                            }
+                        ]
+                    }
+                )
+            ),
+            _sse(_chunk({"tool_calls": [{"index": 0, "function": {"arguments": '{"operation":"get_order_summary"}'}}]})),
+            _sse(_chunk({}, finish_reason="tool_calls")),
+            _sse("[DONE]"),
+        ]
+    )
+    provider = make_provider(
+        lambda _: httpx2.Response(200, headers={"content-type": "text/event-stream"}, content=body)
+    )
+
+    parts = [part async for part in provider.stream([ChatMessage(role="user", content="Orders?")])]
+    await provider.aclose()
+
+    assert parts[0].tool_name == "analytics"
+    response = parts[-1].response
+    assert response is not None
+    assert response.tool_calls == [
+        ToolCall(id="call_1", name="analytics", arguments='{"operation":"get_order_summary"}')
+    ]
+
+
 async def test_generate_maps_rate_limit_error() -> None:
     provider = make_provider(lambda _: httpx2.Response(429, json={"error": {"message": "slow down"}}))
 

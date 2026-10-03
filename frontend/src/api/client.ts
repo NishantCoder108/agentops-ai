@@ -47,7 +47,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
-    throw await readError(response);
+    throw await responseError(response);
   }
   return (await response.json()) as T;
 }
@@ -59,7 +59,7 @@ export function errorMessage(error: unknown): string {
   return "Something went wrong.";
 }
 
-async function readError(response: Response): Promise<ApiError> {
+export async function responseError(response: Response): Promise<ApiError> {
   try {
     const body = (await response.json()) as { error?: { code?: string; message?: string } };
     if (body.error?.message) {

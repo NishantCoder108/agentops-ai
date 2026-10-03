@@ -1,12 +1,15 @@
+import asyncio
+import contextlib
 import json
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, date, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.errors import AgentMaxStepsExceededError
+from app.agent.events import AgentDone, AgentEvent, AgentStatus, AgentToken, ClientDisconnected
 from app.agent.grounding import (
     KNOWLEDGE_ANSWER_INSTRUCTIONS,
     KNOWLEDGE_TOOL_NAME,
@@ -18,12 +21,47 @@ from app.agent.grounding import (
 from app.agent.tracking import RunTracker
 from app.core.exceptions import AppError
 from app.llm.base import LLMProvider
-from app.llm.types import ChatMessage, ToolCall, ToolDefinition
+from app.llm.errors import LLMProviderError
+from app.llm.streaming import LLMStreamPart, iterate_completion
+from app.llm.types import ChatMessage, LLMResponse, ToolCall, ToolDefinition
 from app.schemas.agent import AgentResponse
 from app.tools.errors import ToolError
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+async def _stop_if_disconnected(stop_when: Callable[[], Awaitable[bool]] | None) -> None:
+    if stop_when is not None and await stop_when():
+        raise ClientDisconnected()
+
+
+async def _until_disconnect(
+    source: AsyncIterator[LLMStreamPart], stop_when: Callable[[], Awaitable[bool]] | None
+) -> AsyncIterator[LLMStreamPart]:
+    """Pull `source` until it ends, and stop within half a second of the client leaving."""
+    iterator = source.__aiter__()
+    while True:
+        pending: asyncio.Task[LLMStreamPart] = asyncio.create_task(iterator.__anext__())
+        try:
+            while not pending.done():
+                if stop_when is not None and await stop_when():
+                    pending.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await pending
+                    raise ClientDisconnected()
+                await asyncio.wait({pending}, timeout=0.5)
+        except ClientDisconnected:
+            raise
+        except Exception:
+            if not pending.done():
+                pending.cancel()
+            raise
+        try:
+            yield pending.result()
+        except StopAsyncIteration:
+            return
+
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are AgentOps AI, a helpful enterprise knowledge assistant. "
@@ -66,6 +104,22 @@ class AgentService:
         session: AsyncSession | None = None,
         conversation_id: uuid.UUID | None = None,
     ) -> AgentResponse:
+        async for event in self.stream(message, session=session, conversation_id=conversation_id):
+            if isinstance(event, AgentDone):
+                return event.response
+        raise AgentMaxStepsExceededError(
+            f"Agent did not produce a final answer within {self._max_steps} steps"
+        )
+
+    async def stream(
+        self,
+        message: str,
+        *,
+        session: AsyncSession | None = None,
+        conversation_id: uuid.UUID | None = None,
+        stop_when: Callable[[], Awaitable[bool]] | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Yield status, tokens, and one final event. Closing the generator early fails an open run."""
         if not message.strip():
             raise AppError("Message must not be empty", code="invalid_message", status_code=422)
         if (session is None) != (conversation_id is None):
@@ -83,40 +137,77 @@ class AgentService:
         tool_definitions = self._tool_definitions() or None
         tools_used: list[str] = []
         passages: list[RetrievedPassage] = []
+        finished = False
 
         try:
             for _ in range(self._max_steps):
-                response = await self._provider.generate(messages, tools=tool_definitions)
-                if not response.tool_calls:
-                    result = self._final_response(response.content, tools_used, passages)
-                    if tracker is not None:
-                        await tracker.complete(result.answer)
-                    return result
-
-                messages.append(
-                    ChatMessage(
-                        role="assistant",
-                        content=response.content or None,
-                        tool_calls=response.tool_calls,
+                await _stop_if_disconnected(stop_when)
+                yield AgentStatus(status="thinking")
+                response, visible = None, ""
+                announced: list[str] = []
+                buffered: list[str] = []
+                held = KNOWLEDGE_TOOL_NAME in tools_used
+                async for part in _until_disconnect(
+                    iterate_completion(self._provider, messages, tools=tool_definitions), stop_when
+                ):
+                    if part.tool_name and part.tool_name not in announced:
+                        if visible:
+                            yield AgentToken(text="", replace=True)
+                            visible = ""
+                        announced.append(part.tool_name)
+                        held = True
+                        yield AgentStatus(status="tool", tool=part.tool_name)
+                    if part.text:
+                        buffered.append(part.text)
+                        if not held and not announced:
+                            if "".join(buffered).lstrip().startswith("{"):
+                                held = True
+                            else:
+                                if not visible:
+                                    yield AgentStatus(status="generating")
+                                visible += part.text
+                                yield AgentToken(text=part.text)
+                    if part.response is not None:
+                        response = part.response
+                if response is None:
+                    raise LLMProviderError("LLM provider returned no choices")
+                if response.tool_calls:
+                    messages.append(
+                        ChatMessage(
+                            role="assistant",
+                            content=response.content or None,
+                            tool_calls=response.tool_calls,
+                        )
                     )
-                )
-                for call in response.tool_calls:
-                    content = await self._run_tool(call, tracker)
-                    if call.name not in tools_used:
-                        tools_used.append(call.name)
-                    if call.name == KNOWLEDGE_TOOL_NAME:
-                        passages.extend(passages_from_tool_result(content))
-                    messages.append(ChatMessage(role="tool", tool_call_id=call.id, content=content))
-        except Exception:
-            if tracker is not None:
-                await self._record_failure(tracker)
-            raise
+                    for call in response.tool_calls:
+                        await _stop_if_disconnected(stop_when)
+                        if call.name not in announced:
+                            yield AgentStatus(status="tool", tool=call.name)
+                            announced.append(call.name)
+                        content = await self._run_tool(call, tracker)
+                        if call.name not in tools_used:
+                            tools_used.append(call.name)
+                        if call.name == KNOWLEDGE_TOOL_NAME:
+                            passages.extend(passages_from_tool_result(content))
+                        messages.append(ChatMessage(role="tool", tool_call_id=call.id, content=content))
+                    continue
 
-        if tracker is not None:
-            await self._record_failure(tracker)
-        raise AgentMaxStepsExceededError(
-            f"Agent did not produce a final answer within {self._max_steps} steps"
-        )
+                result = self._final_response(response.content, tools_used, passages)
+                if visible != result.answer:
+                    yield AgentStatus(status="generating")
+                    yield AgentToken(text=result.answer, replace=True)
+                if tracker is not None:
+                    await tracker.complete(result.answer)
+                finished = True
+                yield AgentDone(response=result)
+                return
+
+            raise AgentMaxStepsExceededError(
+                f"Agent did not produce a final answer within {self._max_steps} steps"
+            )
+        finally:
+            if tracker is not None and not finished:
+                await self._record_failure(tracker)
 
     async def _record_failure(self, tracker: RunTracker) -> None:
         try:

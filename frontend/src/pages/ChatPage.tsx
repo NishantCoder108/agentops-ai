@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { errorMessage } from "../api/client";
-import { getConversation, listConversations, sendMessage } from "../api/chat";
-import type { ConversationSummary } from "../api/types";
+import { getConversation, listConversations, streamMessage } from "../api/chat";
+import type { ChatResponse, ConversationSummary } from "../api/types";
+import { activityLabel } from "../chat/activity";
 import ChatComposer from "../components/chat/ChatComposer";
 import ConversationList from "../components/chat/ConversationList";
 import MessageList, { type ThreadMessage } from "../components/chat/MessageList";
@@ -16,10 +17,14 @@ export default function ChatPage() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [loadingThread, setLoadingThread] = useState(false);
   const [loadingReply, setLoadingReply] = useState(false);
+  const [activity, setActivity] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestSeq = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,21 +51,30 @@ export default function ChatPage() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, loadingReply]);
+  }, [messages, loadingReply, activity]);
+
+  function cancelReply() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }
 
   function startNewChat() {
+    cancelReply();
     requestSeq.current += 1;
     setConversationId(null);
     setMessages([]);
     setError(null);
+    setActivity(null);
     setLoadingReply(false);
     setLoadingThread(false);
   }
 
   async function openConversation(id: string) {
+    cancelReply();
     const seq = ++requestSeq.current;
     setConversationId(id);
     setError(null);
+    setActivity(null);
     setLoadingReply(false);
     setLoadingThread(true);
     setMessages([]);
@@ -93,38 +107,51 @@ export default function ChatPage() {
     if (!text || loadingReply) {
       return;
     }
+    cancelReply();
+    const controller = new AbortController();
+    abortRef.current = controller;
     const seq = ++requestSeq.current;
+    const assistantId = crypto.randomUUID();
     setDraft("");
     setError(null);
+    setActivity("Thinking...");
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: text }]);
     setLoadingReply(true);
     try {
-      const response = await sendMessage(text, conversationId);
-      if (requestSeq.current !== seq) {
+      await streamMessage(
+        text,
+        conversationId,
+        {
+          onStatus: (status, tool) => {
+            if (requestSeq.current === seq) {
+              setActivity(activityLabel(status, tool));
+            }
+          },
+          onToken: (token, replace) => {
+            if (requestSeq.current === seq) {
+              setMessages((current) => applyToken(current, assistantId, token, replace));
+            }
+          },
+          onDone: (response) => {
+            if (requestSeq.current !== seq) {
+              return;
+            }
+            rememberConversation(response, setConversationId, setConversations);
+            setMessages((current) => applyDone(current, assistantId, response));
+          },
+        },
+        controller.signal,
+      );
+    } catch (err) {
+      if (controller.signal.aborted || requestSeq.current !== seq) {
         return;
       }
-      if (response.conversation_id) {
-        const nextId = response.conversation_id;
-        setConversationId(nextId);
-        setConversations((current) => upsertConversation(current, nextId));
-      }
-      setMessages((current) => [
-        ...current,
-        {
-          id: response.run_id ?? crypto.randomUUID(),
-          role: "assistant",
-          content: response.answer,
-          toolsUsed: response.tools_used ?? [],
-          sources: response.sources ?? [],
-        },
-      ]);
-    } catch (err) {
-      if (requestSeq.current === seq) {
-        setError(errorMessage(err));
-      }
+      setMessages((current) => current.filter((message) => message.id !== assistantId));
+      setError(errorMessage(err));
     } finally {
       if (requestSeq.current === seq) {
         setLoadingReply(false);
+        setActivity(null);
       }
     }
   }
@@ -153,9 +180,9 @@ export default function ChatPage() {
           )}
           {loadingThread && <p className="muted">Loading conversation…</p>}
           <MessageList messages={messages} />
-          {loadingReply && (
+          {loadingReply && activity && (
             <p className="working" role="status">
-              Working…
+              {activity}
             </p>
           )}
           <div ref={endRef} />
@@ -165,6 +192,46 @@ export default function ChatPage() {
       </section>
     </div>
   );
+}
+
+function rememberConversation(
+  response: ChatResponse,
+  setConversationId: (id: string) => void,
+  setConversations: (update: (current: ConversationSummary[]) => ConversationSummary[]) => void,
+) {
+  if (!response.conversation_id) {
+    return;
+  }
+  const nextId = response.conversation_id;
+  setConversationId(nextId);
+  setConversations((current) => upsertConversation(current, nextId));
+}
+
+function applyToken(messages: ThreadMessage[], id: string, text: string, replace: boolean): ThreadMessage[] {
+  if (replace && text === "") {
+    return messages.filter((message) => message.id !== id);
+  }
+  const existing = messages.some((message) => message.id === id);
+  if (!existing) {
+    return [...messages, { id, role: "assistant", content: text }];
+  }
+  return messages.map((message) =>
+    message.id === id ? { ...message, content: replace ? text : message.content + text } : message,
+  );
+}
+
+function applyDone(messages: ThreadMessage[], id: string, response: ChatResponse): ThreadMessage[] {
+  const next: ThreadMessage = {
+    id: response.run_id ?? id,
+    role: "assistant",
+    content: response.answer,
+    toolsUsed: response.tools_used ?? [],
+    sources: response.sources ?? [],
+  };
+  if (!messages.some((message) => message.id === id)) {
+    return [...messages, next];
+  }
+  return messages.map((message) => (message.id === id ? next : message));
 }
 
 function upsertConversation(rows: ConversationSummary[], id: string): ConversationSummary[] {
