@@ -4,18 +4,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import get_db_session, require_permission
 from app.auth.permissions import Permission
 from app.core.exceptions import AppError
-from app.models import Conversation, User
+from app.models import Conversation, Message, User
 from app.schemas.conversation import ConversationDetail, ConversationSummary, MessageResponse
 from app.schemas.error import ErrorResponse
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 _NOT_FOUND = {"model": ErrorResponse, "description": "Conversation not found"}
+_MAX_MESSAGES = 200
 
 
 @router.get(
@@ -58,12 +58,19 @@ async def get_conversation(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ConversationDetail:
     conversation = await session.scalar(
-        select(Conversation)
-        .where(Conversation.id == conversation_id, Conversation.user_id == user.id)
-        .options(selectinload(Conversation.messages))
+        select(Conversation).where(Conversation.id == conversation_id, Conversation.user_id == user.id)
     )
     if conversation is None:
         raise AppError("Conversation not found", code="not_found", status_code=404)
+    newest_first = list(
+        await session.scalars(
+            select(Message)
+            .where(Message.conversation_id == conversation.id)
+            .order_by(Message.created_at.desc())
+            .limit(_MAX_MESSAGES)
+        )
+    )
+    newest_first.reverse()
     return ConversationDetail(
         id=conversation.id,
         created_at=conversation.created_at,
@@ -74,6 +81,6 @@ async def get_conversation(
                 content=message.content,
                 created_at=message.created_at,
             )
-            for message in conversation.messages
+            for message in newest_first
         ],
     )

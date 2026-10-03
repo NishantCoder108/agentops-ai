@@ -13,6 +13,8 @@ from app.schemas.error import ErrorResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+_MAX_USERS = 200
+
 
 @router.get(
     "",
@@ -28,7 +30,10 @@ async def list_users(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> list[UserResponse]:
     rows = await session.scalars(
-        select(User).where(User.organization_id == admin.organization_id).order_by(User.created_at)
+        select(User)
+        .where(User.organization_id == admin.organization_id)
+        .order_by(User.created_at)
+        .limit(_MAX_USERS)
     )
     return [user_response(user) for user in rows]
 

@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.errors import EmailAlreadyRegisteredError, InvalidCredentialsError
@@ -24,7 +25,7 @@ async def register_organization(session: AsyncSession, settings: Settings, data:
         password_hash=hash_password(data.password),
     )
     session.add(user)
-    await session.commit()
+    await _commit_user(session)
     return user, create_access_token(settings, user.id)
 
 
@@ -48,8 +49,19 @@ async def create_organization_user(session: AsyncSession, admin: User, data: Cre
         password_hash=hash_password(data.password),
     )
     session.add(user)
-    await session.commit()
+    await _commit_user(session)
     return user
+
+
+async def _commit_user(session: AsyncSession) -> None:
+    """A concurrent insert of the same email hits the unique constraint."""
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if getattr(exc.orig, "constraint_name", None) == "uq_users_email" or "uq_users_email" in str(exc):
+            raise EmailAlreadyRegisteredError() from None
+        raise
 
 
 async def _ensure_email_available(session: AsyncSession, email: str) -> None:

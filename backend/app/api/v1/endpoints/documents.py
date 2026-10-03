@@ -6,7 +6,7 @@ from app.api.dependencies import get_embedding_provider, require_permission
 from app.auth.permissions import Permission
 from app.db.errors import DatabaseNotConfiguredError
 from app.knowledge.embeddings import EmbeddingProvider
-from app.knowledge.extract import document_format, extract_text, stored_filename
+from app.knowledge.extract import MAX_DOCUMENT_BYTES, document_format, extract_text, stored_filename
 from app.knowledge.service import KnowledgeService
 from app.models import User
 from app.schemas.error import ErrorResponse
@@ -21,6 +21,7 @@ router = APIRouter(tags=["documents"])
     status_code=201,
     summary="Upload a text or markdown document",
     responses={
+        413: {"model": ErrorResponse, "description": "Request is too large"},
         422: {"model": ErrorResponse, "description": "Invalid document"},
         500: {"model": ErrorResponse, "description": "Database or embeddings are not configured"},
         502: {"model": ErrorResponse, "description": "Embedding provider error"},
@@ -36,9 +37,12 @@ async def create_document(
     if session_factory is None:
         raise DatabaseNotConfiguredError()
 
-    filename = stored_filename(file.filename or "")
-    fmt = document_format(filename)
-    text = extract_text(await file.read(), fmt)
+    try:
+        filename = stored_filename(file.filename or "")
+        fmt = document_format(filename)
+        text = extract_text(await file.read(MAX_DOCUMENT_BYTES + 1), fmt)
+    finally:
+        await file.close()
 
     async with session_factory() as session:
         document = await KnowledgeService(session, user.organization_id, embedder).add_document(

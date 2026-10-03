@@ -1,6 +1,6 @@
-"""Per-user chat rate limits.
+"""Fixed-window rate limits for chat, sign-in, and registration.
 
-Redis stores one counter per user per window, then deletes it when the window ends.
+Redis stores one counter per key per window, then deletes it when the window ends.
 Conversations, messages, documents, and agent runs stay in PostgreSQL. With no
 REDIS_URL, the same counter lives in this process so local development still enforces
 the limit.
@@ -34,11 +34,11 @@ return {current, ttl}
 
 
 class RateLimitedError(AppError):
-    def __init__(self, retry_after_seconds: int) -> None:
+    def __init__(self, retry_after_seconds: int, *, subject: str = "chat requests") -> None:
         wait = max(1, retry_after_seconds)
         unit = "second" if wait == 1 else "seconds"
         super().__init__(
-            f"Too many chat requests. Try again in {wait} {unit}.",
+            f"Too many {subject}. Try again in {wait} {unit}.",
             code="rate_limited",
             status_code=429,
             headers={"Retry-After": str(wait)},
@@ -48,7 +48,7 @@ class RateLimitedError(AppError):
 class RateLimitUnavailableError(AppError):
     def __init__(self) -> None:
         super().__init__(
-            "Chat is temporarily unavailable. Try again shortly.",
+            "Rate limiting is temporarily unavailable. Try again shortly.",
             code="rate_limit_unavailable",
             status_code=503,
         )
@@ -105,11 +105,11 @@ class RedisCounterStore:
     async def increment(self, key: str, ttl_seconds: int) -> tuple[int, int]:
         try:
             raw = await self._connect().eval(_INCREMENT_SCRIPT, 1, key, ttl_seconds)
-        except RedisError:
-            logger.exception("Chat rate limit check failed")
+        except RedisError as exc:
+            logger.warning("Rate limit check failed: %s", type(exc).__name__)
             raise RateLimitUnavailableError() from None
         if not isinstance(raw, (list, tuple)) or len(raw) != 2:
-            logger.error("Chat rate limit check returned an unexpected result")
+            logger.error("Rate limit check returned an unexpected result")
             raise RateLimitUnavailableError()
         count = int(raw[0])
         ttl = int(raw[1])

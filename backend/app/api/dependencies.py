@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
@@ -88,6 +89,33 @@ async def enforce_chat_rate_limit(
     return user
 
 
+async def enforce_auth_rate_limit(request: Request, email: str, *, registration: bool = False) -> None:
+    """Count one sign-in. Registration also counts against a shared cap.
+
+    The caller runs this before opening a database connection or hashing a password.
+    """
+    settings: Settings = request.app.state.settings
+    limiter: RateLimiter = request.app.state.rate_limiter
+    decision = await limiter.consume(
+        "auth",
+        email,
+        limit=settings.auth_rate_limit_requests,
+        window_seconds=settings.auth_rate_limit_window_seconds,
+    )
+    if not decision.allowed:
+        raise RateLimitedError(decision.retry_after_seconds, subject="attempts")
+    if not registration:
+        return
+    decision = await limiter.consume(
+        "register",
+        "all",
+        limit=settings.register_rate_limit_requests,
+        window_seconds=settings.register_rate_limit_window_seconds,
+    )
+    if not decision.allowed:
+        raise RateLimitedError(decision.retry_after_seconds, subject="registration attempts")
+
+
 def get_current_organization_id(user: Annotated[User, Depends(get_current_user)]) -> uuid.UUID:
     return user.organization_id
 
@@ -131,12 +159,18 @@ def get_agent_service(
     return AgentService(provider, tools)
 
 
-async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """One session per request. Callers commit explicitly; uncommitted work is rolled back on close."""
+@asynccontextmanager
+async def database_session(request: Request) -> AsyncIterator[AsyncSession]:
+    """One session. Callers commit explicitly; uncommitted work is rolled back on close."""
     session_factory: async_sessionmaker[AsyncSession] | None = request.app.state.db_session_factory
     if session_factory is None:
         raise DatabaseNotConfiguredError()
     async with session_factory() as session:
+        yield session
+
+
+async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
+    async with database_session(request) as session:
         yield session
 
 

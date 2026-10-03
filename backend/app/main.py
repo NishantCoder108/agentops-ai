@@ -8,6 +8,7 @@ from app.api.dependencies import close_database, close_embedding_provider, close
 from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
+from app.core.request_limit import MAX_REQUEST_BYTES, RequestBodyLimitMiddleware
 from app.db.session import create_db_engine, create_session_factory
 from app.rate_limit import create_rate_limiter
 from app.schemas.error import ErrorResponse
@@ -45,6 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         create_session_factory(app.state.db_engine) if app.state.db_engine is not None else None
     )
 
+    # Added first so CORS stays outermost and can attach headers to a 413.
+    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

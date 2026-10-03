@@ -183,12 +183,12 @@ def _provider_error(exc: openai.APIError) -> LLMProviderError:
             "LLM provider rate limit exceeded", code="llm_rate_limited", status_code=429
         )
     if isinstance(exc, openai.APIStatusError):
-        logger.warning("OpenRouter returned HTTP %s: %s", exc.status_code, exc.message)
+        logger.warning("OpenRouter returned HTTP %s", exc.status_code)
         return LLMProviderError(
             "LLM provider returned an error",
             details={"provider_status": exc.status_code},
         )
-    logger.warning("OpenRouter request failed: %s", exc)
+    logger.warning("OpenRouter request failed: %s", type(exc).__name__)
     return LLMProviderError("Could not reach LLM provider")
 
 

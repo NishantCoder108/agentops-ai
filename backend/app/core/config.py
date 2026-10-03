@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     # SecretStr because the URL contains the database password.
     database_url: SecretStr | None = None
+    # SQL echo writes statement text, which can include row values. Off in production.
     database_echo: bool = False
 
     # HS256 key for access tokens. Required in production. At least 32 characters.
@@ -51,6 +52,12 @@ class Settings(BaseSettings):
     redis_url: SecretStr | None = None
     chat_rate_limit_requests: int = 20
     chat_rate_limit_window_seconds: int = 60
+    # Sign-in and registration attempts for one email address.
+    auth_rate_limit_requests: int = 10
+    auth_rate_limit_window_seconds: int = 300
+    # New accounts across every email address, so registration cannot run without a cap.
+    register_rate_limit_requests: int = 20
+    register_rate_limit_window_seconds: int = 60
 
     # Kept so existing environment files still load. Authorization uses the authenticated user's
     # organization, never this value, the LLM, or the request body.
@@ -122,11 +129,27 @@ class Settings(BaseSettings):
             raise ValueError("CHAT_RATE_LIMIT_WINDOW_SECONDS must be between 1 and 86400")
         return value
 
+    @field_validator("auth_rate_limit_requests", "register_rate_limit_requests")
+    @classmethod
+    def check_auth_rate_limit_requests(cls, value: int) -> int:
+        if not 1 <= value <= 10_000:
+            raise ValueError("Auth rate limit requests must be between 1 and 10000")
+        return value
+
+    @field_validator("auth_rate_limit_window_seconds", "register_rate_limit_window_seconds")
+    @classmethod
+    def check_auth_rate_limit_window(cls, value: int) -> int:
+        if not 1 <= value <= 24 * 60 * 60:
+            raise ValueError("Auth rate limit window must be between 1 and 86400 seconds")
+        return value
+
     @model_validator(mode="after")
     def check_production_safety(self) -> "Settings":
         if self.is_production:
             if self.debug:
                 raise ValueError("DEBUG must be false in production")
+            if self.database_echo:
+                raise ValueError("DATABASE_ECHO must be false in production")
             if "*" in self.cors_origins:
                 raise ValueError("CORS_ORIGINS must not contain '*' in production")
             if self.jwt_secret is None:

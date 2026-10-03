@@ -1,9 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Request
 
-from app.api.dependencies import get_app_settings, get_current_user, get_db_session
+from app.api.dependencies import database_session, enforce_auth_rate_limit, get_app_settings, get_current_user
 from app.auth.service import authenticate, register_organization
 from app.core.config import Settings
 from app.models import User
@@ -21,16 +20,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     responses={
         409: {"model": ErrorResponse, "description": "Email is already registered"},
         422: {"model": ErrorResponse, "description": "Invalid request"},
+        429: {"model": ErrorResponse, "description": "Too many attempts"},
         500: {"model": ErrorResponse, "description": "Authentication or database is not configured"},
     },
 )
 async def register(
+    request: Request,
     payload: RegisterRequest,
     settings: Annotated[Settings, Depends(get_app_settings)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AuthResponse:
-    user, token = await register_organization(session, settings, payload)
-    return AuthResponse(access_token=token, user=user_response(user))
+    await enforce_auth_rate_limit(request, payload.email, registration=True)
+    async with database_session(request) as session:
+        user, token = await register_organization(session, settings, payload)
+        return AuthResponse(access_token=token, user=user_response(user))
 
 
 @router.post(
@@ -40,16 +42,19 @@ async def register(
     responses={
         401: {"model": ErrorResponse, "description": "Invalid email or password"},
         422: {"model": ErrorResponse, "description": "Invalid request"},
+        429: {"model": ErrorResponse, "description": "Too many attempts"},
         500: {"model": ErrorResponse, "description": "Authentication or database is not configured"},
     },
 )
 async def login(
+    request: Request,
     payload: LoginRequest,
     settings: Annotated[Settings, Depends(get_app_settings)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AuthResponse:
-    user, token = await authenticate(session, settings, payload.email, payload.password)
-    return AuthResponse(access_token=token, user=user_response(user))
+    await enforce_auth_rate_limit(request, payload.email)
+    async with database_session(request) as session:
+        user, token = await authenticate(session, settings, payload.email, payload.password)
+        return AuthResponse(access_token=token, user=user_response(user))
 
 
 @router.get(
