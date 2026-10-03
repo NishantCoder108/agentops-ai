@@ -34,8 +34,13 @@ def test_production_rejects_wildcard_cors() -> None:
         make_settings(environment="production", cors_origins=["*"])
 
 
+def test_production_requires_jwt_secret() -> None:
+    with pytest.raises(ValidationError, match="JWT_SECRET"):
+        make_settings(environment="production")
+
+
 def test_production_disables_docs() -> None:
-    client = TestClient(create_app(make_settings(environment="production")))
+    client = TestClient(create_app(make_settings(environment="production", jwt_secret="x" * 32)))
 
     assert client.get("/docs").status_code == 404
     assert client.get("/openapi.json").status_code == 404

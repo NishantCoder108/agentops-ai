@@ -11,8 +11,14 @@ from app.core.config import Settings
 from app.llm import ChatMessage, LLMProviderError, ToolCall
 from app.main import create_app
 from app.schemas.chat import MAX_MESSAGE_LENGTH
+from tests.auth_helpers import install_user
 from tests.conftest import make_settings
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
+
+
+@pytest.fixture(autouse=True)
+def authenticated_user(app: FastAPI):
+    return install_user(app)
 
 
 @pytest.fixture
@@ -73,27 +79,23 @@ def _install_fake_database(app: FastAPI) -> None:
     app.state.db_session_factory = lambda: _Session()
 
 
-def test_chat_offers_only_calculator_without_organization(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DEFAULT_ORGANIZATION_ID", raising=False)
-    app = create_app(make_settings(database_url="postgresql+asyncpg://u:p@127.0.0.1:1/none"))
-    _install_fake_database(app)
+def test_chat_without_a_token_does_not_call_the_model() -> None:
+    app = create_app(make_settings())
     fake = FakeLLMProvider()
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
-    TestClient(app).post("/api/v1/chat", json={"message": "Hello"})
+    response = TestClient(app, raise_server_exceptions=False).post("/api/v1/chat", json={"message": "Hello"})
 
-    assert [tool.name for tool in fake.calls[0]["tools"]] == ["calculator"]
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+    assert fake.calls == []
 
 
 def test_chat_offers_analytics_with_database_and_organization() -> None:
     # The tool is only offered here, never executed, so no database connection is opened.
-    app = create_app(
-        make_settings(
-            database_url="postgresql+asyncpg://u:p@127.0.0.1:1/none",
-            default_organization_id="7f1c7b7e-3c2e-4a59-9d39-2b0f5c3d8a10",
-        )
-    )
+    app = create_app(make_settings(database_url="postgresql+asyncpg://u:p@127.0.0.1:1/none"))
     _install_fake_database(app)
+    install_user(app, organization_id=uuid.UUID("7f1c7b7e-3c2e-4a59-9d39-2b0f5c3d8a10"))
     fake = FakeLLMProvider()
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
@@ -169,7 +171,9 @@ def test_chat_agent_step_limit_uses_error_format(app: FastAPI, client: TestClien
 def test_chat_without_llm_config_returns_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
-    client = TestClient(create_app(make_settings()), raise_server_exceptions=False)
+    app = create_app(make_settings())
+    install_user(app)
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post("/api/v1/chat", json={"message": "Hello"})
 
@@ -189,7 +193,9 @@ def test_provider_is_created_once_and_closed_on_shutdown(
 
     monkeypatch.setattr(dependencies, "create_llm_provider", fake_factory)
 
-    with TestClient(create_app(settings)) as client:
+    app = create_app(settings)
+    install_user(app)
+    with TestClient(app) as client:
         client.post("/api/v1/chat", json={"message": "one"})
         client.post("/api/v1/chat", json={"message": "two"})
         assert fake.closed is False

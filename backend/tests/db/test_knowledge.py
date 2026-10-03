@@ -12,6 +12,7 @@ from app.main import create_app
 from app.models import Organization
 from app.models.document import DocumentFormat
 from app.tools import create_default_tool_registry
+from tests.auth_helpers import JWT_SECRET, bearer, register
 from tests.conftest import make_settings
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 from tests.test_knowledge import _FakeEmbedder, vector_for
@@ -101,6 +102,7 @@ def test_upload_document_stores_chunks(clean_database: str) -> None:
     app = create_app(
         make_settings(
             database_url=clean_database,
+            jwt_secret=JWT_SECRET,
             embedding_model="openai/text-embedding-3-small",
             openrouter_api_key="test-key",
         )
@@ -108,26 +110,18 @@ def test_upload_document_stores_chunks(clean_database: str) -> None:
     app.dependency_overrides[get_embedding_provider] = lambda: embedder
 
     with TestClient(app) as client:
-        missing_org = client.post(
+        missing_token = client.post(
             "/api/v1/documents",
             files={"file": ("notes.md", b"# Hi", "text/markdown")},
         )
-        assert missing_org.status_code == 500
-        assert missing_org.json()["error"]["code"] == "organization_not_configured"
+        assert missing_token.status_code == 401
+        assert missing_token.json()["error"]["code"] == "unauthorized"
 
-    organization_id = _create_organization(clean_database)
-    app = create_app(
-        make_settings(
-            database_url=clean_database,
-            default_organization_id=str(organization_id),
-            embedding_model="openai/text-embedding-3-small",
-            openrouter_api_key="test-key",
-        )
-    )
-    app.dependency_overrides[get_embedding_provider] = lambda: embedder
-    with TestClient(app) as client:
+        admin = register(client)
+        headers = bearer(admin["access_token"])
         created = client.post(
             "/api/v1/documents",
+            headers=headers,
             files={"file": ("../policy.md", b"# Refunds\n\nFive days.", "text/markdown")},
         )
         assert created.status_code == 201
@@ -137,6 +131,7 @@ def test_upload_document_stores_chunks(clean_database: str) -> None:
 
         rejected = client.post(
             "/api/v1/documents",
+            headers=headers,
             files={"file": ("notes.pdf", b"%PDF", "application/pdf")},
         )
         assert rejected.status_code == 422
@@ -153,24 +148,3 @@ class _RecordingEmbedder(_FakeEmbedder):
         self.texts.append(list(texts))
         return await super().embed(texts)
 
-
-def _create_organization(database_url: str) -> str:
-    app = create_app(make_settings(database_url=database_url))
-    from typing import Annotated
-
-    from fastapi import Depends
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from app.api.dependencies import get_db_session
-
-    @app.post("/test/orgs")
-    async def create_org(session: Annotated[AsyncSession, Depends(get_db_session)]) -> dict:
-        organization = Organization(name="Acme")
-        session.add(organization)
-        await session.commit()
-        return {"id": str(organization.id)}
-
-    with TestClient(app) as client:
-        response = client.post("/test/orgs")
-        assert response.status_code == 200
-        return response.json()["id"]

@@ -14,6 +14,7 @@ from app.main import create_app
 from app.models import AgentRun, AgentRunStatus, Conversation, ToolCallStatus
 from app.models import ToolCall as ToolCallRecord
 from app.tools import CalculatorTool, ToolRegistry
+from tests.auth_helpers import JWT_SECRET, PASSWORD, bearer, login, register
 from tests.conftest import make_settings
 from tests.fakes import FakeLLMProvider, answer_response, tool_call_response
 
@@ -134,7 +135,7 @@ async def test_invalid_tool_arguments_are_stored_without_being_executed_as_code(
 
 
 def test_chat_persists_a_run_and_reuses_the_conversation(clean_database: str) -> None:
-    app = create_app(make_settings(database_url=clean_database))
+    app = create_app(make_settings(database_url=clean_database, jwt_secret=JWT_SECRET))
     fake = FakeLLMProvider(
         responses=[
             tool_call_response(
@@ -147,7 +148,20 @@ def test_chat_persists_a_run_and_reuses_the_conversation(clean_database: str) ->
     app.dependency_overrides[get_llm_provider] = lambda: fake
 
     with TestClient(app) as client:
-        first = client.post("/api/v1/chat", json={"message": "What is 2 + 2?"})
+        admin = register(client, email="admin@example.com")
+        created = client.post(
+            "/api/v1/users",
+            headers=bearer(admin["access_token"]),
+            json={
+                "email": "member@example.com",
+                "name": "Member",
+                "password": PASSWORD,
+                "role": "user",
+            },
+        )
+        assert created.status_code == 201
+        headers = bearer(login(client, "member@example.com"))
+        first = client.post("/api/v1/chat", headers=headers, json={"message": "What is 2 + 2?"})
         assert first.status_code == 200
         body = first.json()
         assert body["answer"] == "4"
@@ -156,6 +170,7 @@ def test_chat_persists_a_run_and_reuses_the_conversation(clean_database: str) ->
 
         second = client.post(
             "/api/v1/chat",
+            headers=headers,
             json={"message": "And again?", "conversation_id": body["conversation_id"]},
         )
         assert second.status_code == 200
@@ -164,6 +179,7 @@ def test_chat_persists_a_run_and_reuses_the_conversation(clean_database: str) ->
 
         missing = client.post(
             "/api/v1/chat",
+            headers=headers,
             json={
                 "message": "Hello",
                 "conversation_id": "00000000-0000-0000-0000-000000000000",

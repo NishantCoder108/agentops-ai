@@ -44,7 +44,12 @@ async def organization(db_session: AsyncSession) -> Organization:
 
 @pytest.fixture
 async def user(db_session: AsyncSession, organization: Organization) -> User:
-    user = User(organization=organization, email="alice@acme.test", name="Alice")
+    user = User(
+        organization=organization,
+        email="alice@acme.test",
+        name="Alice",
+        password_hash="stored-hash",
+    )
     await add(db_session, user)
     return user
 
@@ -108,7 +113,15 @@ async def test_user_email_is_globally_unique(db_session: AsyncSession, user: Use
     other_organization = Organization(name="Globex")
 
     with pytest.raises(IntegrityError, match="uq_users_email"):
-        await add(db_session, User(organization=other_organization, email=user.email, name="Alice 2"))
+        await add(
+            db_session,
+            User(
+                organization=other_organization,
+                email=user.email,
+                name="Alice 2",
+                password_hash="stored-hash",
+            ),
+        )
 
 
 async def test_customer_email_is_unique_per_organization(
