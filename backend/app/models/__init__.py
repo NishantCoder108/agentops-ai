@@ -4,7 +4,7 @@ from app.models.agent_run import AgentRun, AgentRunStatus, ToolCall, ToolCallSta
 from app.models.commerce import Customer, Order, OrderStatus, Refund, RefundStatus
 from app.models.conversation import Conversation, Message, MessageRole
 from app.models.document import Document, DocumentChunk, DocumentFormat
-from app.models.organization import Organization, User
+from app.models.organization import Organization, User, UserRole
 
 __all__ = [
     "AgentRun",
@@ -24,4 +24,5 @@ __all__ = [
     "ToolCall",
     "ToolCallStatus",
     "User",
+    "UserRole",
 ]

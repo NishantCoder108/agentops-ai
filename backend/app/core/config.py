@@ -42,8 +42,12 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
     database_echo: bool = False
 
-    # Organization whose data the agent's business tools may read. Stand-in until authentication
-    # provides the caller's organization; never taken from the LLM or the request body.
+    # HS256 key for access tokens. Required in production. At least 32 characters.
+    jwt_secret: SecretStr | None = None
+    jwt_access_token_minutes: int = 60
+
+    # Kept so existing environment files still load. Authorization uses the authenticated user's
+    # organization, never this value, the LLM, or the request body.
     default_organization_id: uuid.UUID | None = None
 
     @field_validator("cors_origins", mode="before")
@@ -53,7 +57,9 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
-    @field_validator("database_url", "default_organization_id", "embedding_model", mode="before")
+    @field_validator(
+        "database_url", "default_organization_id", "embedding_model", "jwt_secret", mode="before"
+    )
     @classmethod
     def empty_string_is_unset(cls, value: Any) -> Any:
         if isinstance(value, str) and not value.strip():
@@ -67,6 +73,20 @@ class Settings(BaseSettings):
             raise ValueError(f"DATABASE_URL must start with {ASYNC_POSTGRES_SCHEME!r}")
         return value
 
+    @field_validator("jwt_secret")
+    @classmethod
+    def check_jwt_secret_length(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters")
+        return value
+
+    @field_validator("jwt_access_token_minutes")
+    @classmethod
+    def check_token_lifetime(cls, value: int) -> int:
+        if not 1 <= value <= 24 * 60:
+            raise ValueError("JWT_ACCESS_TOKEN_MINUTES must be between 1 and 1440")
+        return value
+
     @model_validator(mode="after")
     def check_production_safety(self) -> "Settings":
         if self.is_production:
@@ -74,6 +94,8 @@ class Settings(BaseSettings):
                 raise ValueError("DEBUG must be false in production")
             if "*" in self.cors_origins:
                 raise ValueError("CORS_ORIGINS must not contain '*' in production")
+            if self.jwt_secret is None:
+                raise ValueError("JWT_SECRET must be set in production")
         return self
 
     @property

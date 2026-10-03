@@ -1,18 +1,25 @@
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.agent.service import AgentService
+from app.auth.errors import ForbiddenError, UnauthorizedError
+from app.auth.permissions import Permission, permissions_for
+from app.auth.tokens import decode_access_token
 from app.core.config import Settings
 from app.db.errors import DatabaseNotConfiguredError
 from app.knowledge.embeddings import EmbeddingProvider, create_embedding_provider
 from app.llm.base import LLMProvider
 from app.llm.factory import create_llm_provider
+from app.models import User
 from app.tools import create_default_tool_registry
 from app.tools.registry import ToolRegistry
+
+_bearer = HTTPBearer(auto_error=False)
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -30,11 +37,37 @@ def get_llm_provider(
     return provider
 
 
-def get_current_organization_id(
+async def get_current_user(
+    request: Request,
     settings: Annotated[Settings, Depends(get_app_settings)],
-) -> uuid.UUID | None:
-    # Placeholder until authentication: then this returns the authenticated user's organization.
-    return settings.default_organization_id
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> User:
+    """Load the user for a bearer token. The token is checked before a database connection is opened."""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise UnauthorizedError()
+    user_id = decode_access_token(settings, credentials.credentials)
+    session_factory: async_sessionmaker[AsyncSession] | None = request.app.state.db_session_factory
+    if session_factory is None:
+        raise DatabaseNotConfiguredError()
+    async with session_factory() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            raise UnauthorizedError()
+        session.expunge(user)
+        return user
+
+
+def require_permission(permission: str) -> Callable[..., object]:
+    async def checker(user: Annotated[User, Depends(get_current_user)]) -> User:
+        if permission not in permissions_for(user.role):
+            raise ForbiddenError()
+        return user
+
+    return checker
+
+
+def get_current_organization_id(user: Annotated[User, Depends(get_current_user)]) -> uuid.UUID:
+    return user.organization_id
 
 
 def get_embedding_provider(
@@ -57,12 +90,15 @@ def _optional_embedding_provider(request: Request, settings: Settings) -> Embedd
 def get_tool_registry(
     request: Request,
     settings: Annotated[Settings, Depends(get_app_settings)],
-    organization_id: Annotated[uuid.UUID | None, Depends(get_current_organization_id)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> ToolRegistry:
+    embedder = None
+    if Permission.SEARCH_KNOWLEDGE in permissions_for(user.role):
+        embedder = _optional_embedding_provider(request, settings)
     return create_default_tool_registry(
         session_factory=request.app.state.db_session_factory,
-        organization_id=organization_id,
-        embedder=_optional_embedding_provider(request, settings),
+        organization_id=user.organization_id,
+        embedder=embedder,
     )
 
 

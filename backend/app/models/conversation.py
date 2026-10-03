@@ -18,7 +18,7 @@ class MessageRole(StrEnum):
 
 
 class Conversation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """A chat thread. `user_id` is optional until authentication exists."""
+    """A chat thread owned by the user who started it."""
 
     __tablename__ = "conversations"
 

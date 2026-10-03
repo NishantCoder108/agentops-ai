@@ -1,16 +1,16 @@
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, UploadFile
 
-from app.api.dependencies import get_current_organization_id, get_embedding_provider
+from app.api.dependencies import get_embedding_provider, require_permission
+from app.auth.permissions import Permission
 from app.db.errors import DatabaseNotConfiguredError
 from app.knowledge.embeddings import EmbeddingProvider
 from app.knowledge.extract import document_format, extract_text, stored_filename
 from app.knowledge.service import KnowledgeService
+from app.models import User
 from app.schemas.error import ErrorResponse
 from app.schemas.knowledge import DocumentResponse
-from app.tools.knowledge import OrganizationNotConfiguredError
 
 router = APIRouter(tags=["documents"])
 
@@ -29,11 +29,9 @@ router = APIRouter(tags=["documents"])
 async def create_document(
     file: UploadFile,
     request: Request,
-    organization_id: Annotated[uuid.UUID | None, Depends(get_current_organization_id)],
+    user: Annotated[User, Depends(require_permission(Permission.MANAGE_DOCUMENTS))],
     embedder: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
 ) -> DocumentResponse:
-    if organization_id is None:
-        raise OrganizationNotConfiguredError()
     session_factory = request.app.state.db_session_factory
     if session_factory is None:
         raise DatabaseNotConfiguredError()
@@ -43,7 +41,7 @@ async def create_document(
     text = extract_text(await file.read(), fmt)
 
     async with session_factory() as session:
-        document = await KnowledgeService(session, organization_id, embedder).add_document(
+        document = await KnowledgeService(session, user.organization_id, embedder).add_document(
             filename, fmt, text
         )
         chunk_count = len(document.chunks)

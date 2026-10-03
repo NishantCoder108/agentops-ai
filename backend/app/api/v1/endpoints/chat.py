@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.service import AgentService
-from app.api.dependencies import get_agent_service
+from app.api.dependencies import get_agent_service, require_permission
+from app.auth.permissions import Permission
 from app.core.exceptions import AppError
-from app.models import Conversation
+from app.models import Conversation, User
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.error import ErrorResponse
 
@@ -33,6 +34,7 @@ router = APIRouter(tags=["chat"])
 async def chat(
     payload: ChatRequest,
     request: Request,
+    user: Annotated[User, Depends(require_permission(Permission.CHAT))],
     agent: Annotated[AgentService, Depends(get_agent_service)],
 ) -> ChatResponse:
     session_factory: async_sessionmaker[AsyncSession] | None = request.app.state.db_session_factory
@@ -41,7 +43,7 @@ async def chat(
         return ChatResponse(answer=result.answer, sources=result.sources, tools_used=result.tools_used)
 
     async with session_factory() as session:
-        conversation_id = await _conversation_id(session, payload.conversation_id)
+        conversation_id = await _conversation_id(session, payload.conversation_id, user.id)
         result = await agent.run(payload.message, session=session, conversation_id=conversation_id)
         return ChatResponse(
             answer=result.answer,
@@ -52,13 +54,16 @@ async def chat(
         )
 
 
-async def _conversation_id(session: AsyncSession, conversation_id: uuid.UUID | None) -> uuid.UUID:
+async def _conversation_id(
+    session: AsyncSession, conversation_id: uuid.UUID | None, user_id: uuid.UUID
+) -> uuid.UUID:
     if conversation_id is not None:
-        if await session.get(Conversation, conversation_id) is None:
+        conversation = await session.get(Conversation, conversation_id)
+        if conversation is None or conversation.user_id != user_id:
             raise AppError("Conversation not found", code="not_found", status_code=404)
-        return conversation_id
+        return conversation.id
 
-    conversation = Conversation()
+    conversation = Conversation(user_id=user_id)
     session.add(conversation)
     await session.flush()
     return conversation.id
