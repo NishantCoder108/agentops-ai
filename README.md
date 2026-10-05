@@ -4,12 +4,7 @@ Agentic enterprise knowledge assistant. A signed-in user asks a question. The ag
 
 The repository is a single application: a FastAPI backend, a React frontend, PostgreSQL with pgvector, and Redis for rate-limit counters. It is not a set of microservices.
 
-
-
 https://github.com/user-attachments/assets/0acc6927-b133-4d8d-9119-6d5c81505750
-
-
-
 
 ## Contents
 
@@ -39,10 +34,10 @@ https://github.com/user-attachments/assets/0acc6927-b133-4d8d-9119-6d5c81505750
 
 Two roles exist, and they do not overlap.
 
-| Role | What that account can do |
-| --- | --- |
+| Role  | What that account can do                                                                                                                                                                                                               |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Admin | The first registered account is an admin. That account creates users in its organization, uploads `.txt` and `.md` documents, and lists agent runs for the organization. Registration is an API call; the UI has no registration form. |
-| User | Chat with the agent, search that organization's documents through the agent, and read their own conversations. |
+| User  | Chat with the agent, search that organization's documents through the agent, and read their own conversations.                                                                                                                         |
 
 Chat is available to the user role. An admin token receives 403 on chat and conversation routes, so it cannot use the knowledge tool either. A user token receives 403 on document upload, user management, and agent-run listing. After sign-in the UI navigates to `/chat` for every role. An admin still sees that page, and the API rejects the message.
 
@@ -104,17 +99,17 @@ PostgreSQL is the system of record for users, conversations, messages, documents
 
 ## Technology stack
 
-| Piece | Choice |
-| --- | --- |
-| API | Python 3.12, FastAPI, Uvicorn, Pydantic |
-| UI | React 19, TypeScript, Vite, React Router |
-| Database | PostgreSQL 18 with pgvector, SQLAlchemy async, Alembic, asyncpg |
-| Limits | Redis 8, or an in-process counter when `REDIS_URL` is empty in development |
-| Models | OpenRouter through the OpenAI-compatible SDK |
-| Passwords and tokens | Argon2id, PyJWT (HS256) |
-| Tests | Pytest, Vitest, React Testing Library, Playwright |
-| Containers | Docker Compose: frontend, backend, Postgres, Redis |
-| CI | GitHub Actions: lint, tests, frontend build, backend image build |
+| Piece                | Choice                                                                     |
+| -------------------- | -------------------------------------------------------------------------- |
+| API                  | Python 3.12, FastAPI, Uvicorn, Pydantic                                    |
+| UI                   | React 19, TypeScript, Vite, React Router                                   |
+| Database             | PostgreSQL 18 with pgvector, SQLAlchemy async, Alembic, asyncpg            |
+| Limits               | Redis 8, or an in-process counter when `REDIS_URL` is empty in development |
+| Models               | OpenRouter through the OpenAI-compatible SDK                               |
+| Passwords and tokens | Argon2id, PyJWT (HS256)                                                    |
+| Tests                | Pytest, Vitest, React Testing Library, Playwright                          |
+| Containers           | Docker Compose: frontend, backend, Postgres, Redis                         |
+| CI                   | GitHub Actions: lint, tests, frontend build, backend image build           |
 
 ### Why these pieces
 
@@ -175,11 +170,11 @@ sequenceDiagram
   Agent-->>User: SSE token and done
 ```
 
-| Tool | Who can reach it | What it does |
-| --- | --- | --- |
-| `calculator` | Any chat request | Evaluates a numeric expression with an operator allowlist. It does not call `eval`. Magnitude and exponent size are capped. |
-| `analytics` | Chat, when the database and organization are known | Runs one of `get_revenue_summary`, `get_order_summary`, `get_refund_summary`, `get_top_customers`. Dates are inclusive UTC days. Amounts are not mixed across currencies. The query runs in a read-only transaction with a 5 second statement timeout. |
-| `search_knowledge` | Chat, when embeddings are configured | Embeds the query, then cosine-searches that organization's chunks. The query is embedded before the read-only transaction opens. Limit is 1–10 passages. |
+| Tool               | Who can reach it                                   | What it does                                                                                                                                                                                                                                           |
+| ------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `calculator`       | Any chat request                                   | Evaluates a numeric expression with an operator allowlist. It does not call `eval`. Magnitude and exponent size are capped.                                                                                                                            |
+| `analytics`        | Chat, when the database and organization are known | Runs one of `get_revenue_summary`, `get_order_summary`, `get_refund_summary`, `get_top_customers`. Dates are inclusive UTC days. Amounts are not mixed across currencies. The query runs in a read-only transaction with a 5 second statement timeout. |
+| `search_knowledge` | Chat, when embeddings are configured               | Embeds the query, then cosine-searches that organization's chunks. The query is embedded before the read-only transaction opens. Limit is 1–10 passages.                                                                                               |
 
 Tool errors go back to the model as tool results so it can recover inside the step limit. Unexpected tool failures are logged and returned as a failed tool result. Arguments that look like secrets (`api_key`, `password`, `token`, bearer values, and similar) are redacted before an agent run is shown in the API.
 
@@ -225,14 +220,14 @@ erDiagram
   orders ||--o{ refunds : has
 ```
 
-| Table | Role |
-| --- | --- |
-| `organizations` | Tenant. |
-| `users` | Email is unique globally. Role is `admin` or `user`. Password column stores an Argon2 hash. |
-| `conversations`, `messages` | A conversation belongs to one user. Messages are user or assistant text. |
-| `agent_runs`, `tool_calls` | One run per chat request, with tool name, arguments, status, and timestamps. |
-| `documents`, `document_chunks` | Uploaded file metadata and chunk text. The chunk embedding is a pgvector column. |
-| `customers`, `orders`, `refunds` | Rows the analytics tool aggregates. Scoped by `organization_id`. |
+| Table                            | Role                                                                                        |
+| -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `organizations`                  | Tenant.                                                                                     |
+| `users`                          | Email is unique globally. Role is `admin` or `user`. Password column stores an Argon2 hash. |
+| `conversations`, `messages`      | A conversation belongs to one user. Messages are user or assistant text.                    |
+| `agent_runs`, `tool_calls`       | One run per chat request, with tool name, arguments, status, and timestamps.                |
+| `documents`, `document_chunks`   | Uploaded file metadata and chunk text. The chunk embedding is a pgvector column.            |
+| `customers`, `orders`, `refunds` | Rows the analytics tool aggregates. Scoped by `organization_id`.                            |
 
 Alembic is the schema history. The backend container runs `alembic upgrade head` before Uvicorn starts. Conversation lists return 50 threads. A conversation detail returns the latest 200 messages. Agent-run and user lists are capped at 50 and 200.
 
@@ -259,20 +254,20 @@ Base path: `/api/v1`. Development serves interactive docs at `/docs`. Errors use
 { "error": { "code": "unauthorized", "message": "…", "details": null } }
 ```
 
-| Method | Path | Auth | Purpose |
-| --- | --- | --- | --- |
-| `GET` | `/health` | Public | `{"status":"ok"}` when the process is serving. It does not check Postgres or Redis. |
-| `POST` | `/auth/register` | Public | Create an organization and its admin. Returns a bearer token. |
-| `POST` | `/auth/login` | Public | Exchange email and password for a bearer token. |
-| `GET` | `/auth/me` | Any signed-in user | The current user. |
-| `GET` | `/users` | Admin | Users in the admin's organization, up to 200. |
-| `POST` | `/users` | Admin | Create a user in that organization. |
-| `POST` | `/chat` | User | One JSON `ChatResponse`. |
-| `POST` | `/chat/stream` | User | SSE events: `status`, `token`, `done`, `error`. |
-| `GET` | `/conversations` | User | That user's conversations, up to 50. |
-| `GET` | `/conversations/{id}` | User | That conversation, or 404 if it belongs to someone else. Latest 200 messages. |
-| `GET` | `/agent-runs` | Admin | Latest 50 runs in the organization. |
-| `POST` | `/documents` | Admin | Multipart upload of one text or markdown file. |
+| Method | Path                  | Auth               | Purpose                                                                             |
+| ------ | --------------------- | ------------------ | ----------------------------------------------------------------------------------- |
+| `GET`  | `/health`             | Public             | `{"status":"ok"}` when the process is serving. It does not check Postgres or Redis. |
+| `POST` | `/auth/register`      | Public             | Create an organization and its admin. Returns a bearer token.                       |
+| `POST` | `/auth/login`         | Public             | Exchange email and password for a bearer token.                                     |
+| `GET`  | `/auth/me`            | Any signed-in user | The current user.                                                                   |
+| `GET`  | `/users`              | Admin              | Users in the admin's organization, up to 200.                                       |
+| `POST` | `/users`              | Admin              | Create a user in that organization.                                                 |
+| `POST` | `/chat`               | User               | One JSON `ChatResponse`.                                                            |
+| `POST` | `/chat/stream`        | User               | SSE events: `status`, `token`, `done`, `error`.                                     |
+| `GET`  | `/conversations`      | User               | That user's conversations, up to 50.                                                |
+| `GET`  | `/conversations/{id}` | User               | That conversation, or 404 if it belongs to someone else. Latest 200 messages.       |
+| `GET`  | `/agent-runs`         | Admin              | Latest 50 runs in the organization.                                                 |
+| `POST` | `/documents`          | Admin              | Multipart upload of one text or markdown file.                                      |
 
 `POST /chat` and `POST /chat/stream` take:
 
@@ -314,7 +309,7 @@ npm ci
 npm run dev
 ```
 
-Leave `frontend/.env` as `VITE_API_BASE_URL=` so the browser calls the Vite proxy at `http://127.0.0.1:5173` and Vite forwards `/api` to port 8000. The UI is http://127.0.0.1:5173 . API docs are http://127.0.0.1:8000/docs .
+Leave `frontend/.env` as `VITE_API_BASE_URL=` so the browser calls the Vite proxy at `http://127.0.0.1:5173` and Vite forwards `/api` to port 8000. The UI is [http://127.0.0.1:5173](http://127.0.0.1:5173) . API docs are [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) .
 
 Create the first organization with `POST /api/v1/auth/register`. That account is an admin. Create a user with `POST /api/v1/users` using the admin token, then sign in as that user to chat. The sign-in page does not register accounts.
 
@@ -331,11 +326,11 @@ docker compose up --build
 
 `JWT_SECRET` must be at least 32 characters. Chat reaches the model only when `OPENROUTER_API_KEY` is set. The stack still starts without it.
 
-| Service | URL |
-| --- | --- |
-| Frontend | http://localhost:5173 |
-| API health | http://localhost:8000/api/v1/health |
-| API docs | http://localhost:8000/docs |
+| Service    | URL                                                                        |
+| ---------- | -------------------------------------------------------------------------- |
+| Frontend   | [http://localhost:5173](http://localhost:5173)                             |
+| API health | [http://localhost:8000/api/v1/health](http://localhost:8000/api/v1/health) |
+| API docs   | [http://localhost:8000/docs](http://localhost:8000/docs)                   |
 
 Published ports bind to `127.0.0.1`. The frontend container proxies `/api` to the backend, so the browser stays on port 5173. On startup the backend applies migrations, then serves the API.
 
@@ -349,31 +344,31 @@ docker compose down
 
 Root `.env.example` is for Compose. `backend/.env.example` is for a process you start yourself. `frontend/.env.example` only sets `VITE_API_BASE_URL`.
 
-| Variable | Where | Purpose |
-| --- | --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | Compose | Database credentials and host port. |
-| `REDIS_PORT` | Compose | Host port for Redis. The backend inside Compose uses `redis://redis:6379/0`. |
-| `JWT_SECRET` | Both | HMAC key, at least 32 characters. Required in production. |
-| `OPENROUTER_API_KEY` | Both | Model and embedding key. Empty means chat cannot call the model. |
-| `LLM_MODEL` | Both | OpenRouter model slug. Default `openai/gpt-4o-mini`. |
-| `EMBEDDING_MODEL` | Both | Embedding slug that returns 1536 dimensions. Empty disables knowledge search and upload. |
-| `CORS_ORIGINS` | Both | Comma-separated browser origins. `*` is rejected in production. |
-| `FRONTEND_PORT`, `BACKEND_PORT` | Compose | Host ports. Defaults 5173 and 8000. |
-| `ENVIRONMENT` | Backend | `development` or `production`. |
-| `DEBUG` | Backend | Must be false in production. |
-| `DATABASE_URL` | Backend | `postgresql+asyncpg://…`. Empty starts the API without a database. |
-| `DATABASE_ECHO` | Backend | SQL logging. Must be false in production. |
-| `TEST_DATABASE_URL` | Backend | Pytest database. The name must end in `_test`. |
-| `JWT_ACCESS_TOKEN_MINUTES` | Backend | 1–1440. Default 60. |
-| `REDIS_URL` | Backend | `redis://` or `rediss://`. Empty in development uses memory. Required in production. |
-| `CHAT_RATE_LIMIT_REQUESTS`, `CHAT_RATE_LIMIT_WINDOW_SECONDS` | Backend | Shared budget for both chat routes. Default 20 per 60 seconds. |
-| `AUTH_RATE_LIMIT_REQUESTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS` | Backend | Per email. Default 10 per 300 seconds. |
-| `REGISTER_RATE_LIMIT_REQUESTS`, `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | Backend | Shared registration cap. Default 20 per 60 seconds. |
-| `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` | Backend | Provider client timeout and retries. Defaults 60 and 2. |
-| `LLM_PROVIDER` | Backend | `openrouter` is the only supported value. |
-| `OPENROUTER_BASE_URL` | Backend | Default `https://openrouter.ai/api/v1`. |
-| `VITE_API_BASE_URL` | Frontend | Empty in Vite dev so the proxy is used. The Docker build sets it empty because nginx proxies `/api`. |
-| `DEFAULT_ORGANIZATION_ID` | Backend | Accepted so older env files still load. Authorization does not use it. |
+| Variable                                                             | Where    | Purpose                                                                                              |
+| -------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | Compose  | Database credentials and host port.                                                                  |
+| `REDIS_PORT`                                                         | Compose  | Host port for Redis. The backend inside Compose uses `redis://redis:6379/0`.                         |
+| `JWT_SECRET`                                                         | Both     | HMAC key, at least 32 characters. Required in production.                                            |
+| `OPENROUTER_API_KEY`                                                 | Both     | Model and embedding key. Empty means chat cannot call the model.                                     |
+| `LLM_MODEL`                                                          | Both     | OpenRouter model slug. Default `openai/gpt-4o-mini`.                                                 |
+| `EMBEDDING_MODEL`                                                    | Both     | Embedding slug that returns 1536 dimensions. Empty disables knowledge search and upload.             |
+| `CORS_ORIGINS`                                                       | Both     | Comma-separated browser origins. `*` is rejected in production.                                      |
+| `FRONTEND_PORT`, `BACKEND_PORT`                                      | Compose  | Host ports. Defaults 5173 and 8000.                                                                  |
+| `ENVIRONMENT`                                                        | Backend  | `development` or `production`.                                                                       |
+| `DEBUG`                                                              | Backend  | Must be false in production.                                                                         |
+| `DATABASE_URL`                                                       | Backend  | `postgresql+asyncpg://…`. Empty starts the API without a database.                                   |
+| `DATABASE_ECHO`                                                      | Backend  | SQL logging. Must be false in production.                                                            |
+| `TEST_DATABASE_URL`                                                  | Backend  | Pytest database. The name must end in `_test`.                                                       |
+| `JWT_ACCESS_TOKEN_MINUTES`                                           | Backend  | 1–1440. Default 60.                                                                                  |
+| `REDIS_URL`                                                          | Backend  | `redis://` or `rediss://`. Empty in development uses memory. Required in production.                 |
+| `CHAT_RATE_LIMIT_REQUESTS`, `CHAT_RATE_LIMIT_WINDOW_SECONDS`         | Backend  | Shared budget for both chat routes. Default 20 per 60 seconds.                                       |
+| `AUTH_RATE_LIMIT_REQUESTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS`         | Backend  | Per email. Default 10 per 300 seconds.                                                               |
+| `REGISTER_RATE_LIMIT_REQUESTS`, `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | Backend  | Shared registration cap. Default 20 per 60 seconds.                                                  |
+| `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`                             | Backend  | Provider client timeout and retries. Defaults 60 and 2.                                              |
+| `LLM_PROVIDER`                                                       | Backend  | `openrouter` is the only supported value.                                                            |
+| `OPENROUTER_BASE_URL`                                                | Backend  | Default `https://openrouter.ai/api/v1`.                                                              |
+| `VITE_API_BASE_URL`                                                  | Frontend | Empty in Vite dev so the proxy is used. The Docker build sets it empty because nginx proxies `/api`. |
+| `DEFAULT_ORGANIZATION_ID`                                            | Backend  | Accepted so older env files still load. Authorization does not use it.                               |
 
 Do not commit `.env` files.
 
@@ -418,22 +413,46 @@ A production process is the same backend container, with `ENVIRONMENT=production
 
 ## Screenshots
 
-Image files are not in the repository. The screens a signed-in browser can open are:
+### Chat
 
-| Screen | What it shows today |
-| --- | --- |
-| Sign in | Email and password. There is no registration form. |
-| Dashboard | Greeting and links to chat, documents, and agent runs. |
-| Chat | Message list, composer, and the tool activity for the current reply. User role only; an admin receives an error from the API. |
-| Documents | A short explanation and the text "No documents are listed here yet." |
-| Agent runs | A timeline of recent runs for an admin: status, tools, and the final answer. |
-| Settings | Name, email, role, and sign out. |
+A signed-in user talking to the agent. The sidebar lists earlier conversations.
+
+![Chat](assests/chat.png)
+
+### Agent run
+
+An admin view of a completed run: status, duration, the final answer, and the planning, tool-call, and response steps.
+
+![Completed agent run](assests/agent-response.png)
+
+### Failed agent run
+
+A run that selected knowledge search, retrieved passages, and still finished with status Failed and no recorded answer. A completed run is listed below it.
+
+![Failed agent run](assests/agent-response-failed.png)
+
+### API docs
+
+The development OpenAPI page: health, auth, users, chat, conversations, agent runs, and documents.
+
+![Swagger API](assests/swagger-api.png)
+
+The screens a signed-in browser can open are:
+
+| Screen     | What it shows today                                                                                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Sign in    | Email and password. There is no registration form.                                                                            |
+| Dashboard  | Greeting and links to chat, documents, and agent runs.                                                                        |
+| Chat       | Message list, composer, and the tool activity for the current reply. User role only; an admin receives an error from the API. |
+| Documents  | A short explanation and the text "No documents are listed here yet."                                                          |
+| Agent runs | A timeline of recent runs for an admin: status, tools, and the final answer.                                                  |
+| Settings   | Name, email, role, and sign out.                                                                                              |
 
 ## Example agent conversations
 
 These are illustrations of paths the code implements. Wording from the model varies. Tool results do not.
 
-**Arithmetic.** A user asks "What is 6 * 7?" The model calls `calculator`. The tool returns 42. The answer is plain text, `sources` is empty, and `tools_used` contains `calculator`. The stream shows a thinking status, then a calculator status, then the answer.
+**Arithmetic.** A user asks "What is 6 \* 7?" The model calls `calculator`. The tool returns 42. The answer is plain text, `sources` is empty, and `tools_used` contains `calculator`. The stream shows a thinking status, then a calculator status, then the answer.
 
 **Documents.** An admin has uploaded a markdown file that says the refund window is 30 days. A user asks "How long is the refund window?" The model calls `search_knowledge`. If it returns a JSON answer whose `document_ids` are all from that search, the client receives the answer text and excerpts copied from the chunks. If it returns an empty `document_ids` list, the client receives exactly: "I do not have enough information to answer that."
 
@@ -451,15 +470,3 @@ These are illustrations of paths the code implements. Wording from the model var
 - Streaming is SSE on a `POST` so the existing bearer token and JSON body keep working. The non-streaming route remains for simple clients.
 - The OpenRouter SDK sits behind `LLMProvider` so the agent tests never call the network.
 - Request size, statement timeouts, and provider timeouts are bounded in the application. There is no separate gateway configuration in this repo beyond the nginx timeouts in the frontend image.
-
-## Future improvements
-
-These are gaps in the current application, not a roadmap commitment.
-
-- Build the documents page on top of the existing upload API, and add list and delete.
-- Show chat only to the user role, and add a screen for the admin user API.
-- Seed or import commerce data so analytics demos are not empty.
-- Put Playwright in CI once the suite stays as fast as the current jobs.
-- Add a deployment workflow when a host is chosen. The images and the production env checks are the starting point.
-- Add refresh or revocation if sessions need to end before the access token expires.
-- Teach the login limit about a trusted client address if password spraying across many emails becomes a practical problem. A single shared address limit is not used today, because every browser behind the Docker proxy would share it.
