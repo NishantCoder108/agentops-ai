@@ -1,0 +1,68 @@
+Northline Analytics
+Customer Operations Handbook
+Document ID: OPS-HANDBOOK-2026-04
+Version: 4.2
+Effective: 6 April 2026
+Classification: Internal — Customer Operations
+Audience: Support, Success, Billing, and on-call engineers
+
+1. Company
+Northline Analytics sells a B2B analytics platform used by finance and operations teams. Customers subscribe by workspace. Each workspace belongs to one company. Support staff may only discuss data that belongs to the customer's own workspace.
+
+2. Plans and billing
+Starter: $49 per month, up to 3 users, 12-month data retention.
+Growth: $199 per month, up to 25 users, 36-month data retention.
+Enterprise: annual contract, custom user limit, 7-year data retention, dedicated success manager.
+
+Billing is in USD. Invoices are issued on the first calendar day of each month for monthly plans, and on the contract anniversary for Enterprise. Payment is due within 15 days of the invoice date. Accounts more than 15 days past due may have exports paused. Accounts more than 30 days past due may have the workspace placed in read-only mode.
+
+3. Refunds and cancellations
+A customer may cancel a monthly plan at any time in Billing Settings. Access continues until the end of the current paid month. Northline does not refund unused days on a monthly plan.
+
+An annual Enterprise contract may be cancelled for convenience with 30 days' written notice. Prepaid unused months are not refunded unless Northline failed a committed uptime SLA in the previous quarter, as defined in section 6.
+
+If Northline bills a customer in error, Finance issues a credit within 5 business days of confirmation. Credits appear on the next invoice unless the customer asks for a refund to the original payment method.
+
+A refund to the original payment method is available only when the charge is less than 45 days old. Older charges are settled as account credit.
+
+4. Data retention and deletion
+When a workspace is cancelled, Northline keeps customer data for 30 days so the customer can export it. After 30 days, production data is deleted. Backups may retain encrypted copies for up to 90 days, then they are destroyed.
+
+A customer may request early deletion in writing from a verified workspace admin. Customer Operations confirms the request within 2 business days and completes deletion of production data within 10 business days.
+
+Northline does not restore deleted workspaces after the 30-day export window.
+
+5. Security and access
+Support may view workspace metadata (plan, user count, invoice status) without extra approval.
+Support may view customer records inside a workspace only after the customer opens a ticket and a workspace admin grants time-limited access. Access expires after 4 hours.
+Payment card numbers, bank account numbers, passwords, and API keys must never be copied into tickets, chat, or this handbook.
+
+6. Availability SLA
+Growth and Enterprise targets are 99.9% monthly uptime, excluding scheduled maintenance.
+Scheduled maintenance is announced at least 72 hours in advance and is limited to Sundays 02:00–06:00 UTC.
+If monthly uptime for Growth or Enterprise falls below 99.9%, the customer receives a service credit of 10% of that month's subscription fee.
+If monthly uptime falls below 99.0%, the credit is 25% of that month's subscription fee.
+Starter has no uptime credit.
+
+7. Support channels and hours
+Email: support@northline.example
+In-app chat: Growth and Enterprise only
+Emergency phone: Enterprise only, +1-415-555-0142
+
+Hours:
+Starter: email, Monday–Friday 09:00–18:00 US Eastern, excluding US federal holidays.
+Growth: email and in-app chat, Monday–Friday 08:00–20:00 US Eastern.
+Enterprise: 24 × 7 for Severity 1 incidents; bus Piness-hours coverage for all other issues.
+
+8. Severity and response
+Severity 1 — production outage or data-loss risk. First response: 15 minutes for Enterprise, 1 hour for Growth. Starter is not eligible.
+Severity 2 — a core feature is unusable for multiple users. First response: 2 hours during support hours.
+Severity 3 — a workaround exists, or a single-user defect. First response: 1 business day.
+Severity 4 — how-to questions and feature requests. First response: 2 business days.
+
+9. Onboarding
+Growth customers receive a 45-minute onboarding call within 5 business days of the first paid invoice.
+Enterprise customers receive a named success manager within 2 business days of contract signature and a kickoff within 10 business days.
+
+10. What this handbook does not cover
+Pricing for professional services, partner discounts, and legal terms in a signed Enterprise MSA. If a question is not answered here, say that you do not have enough information and route it to Customer Operations.
