@@ -4,6 +4,13 @@ Agentic enterprise knowledge assistant. A signed-in user asks a question. The ag
 
 The repository is a single application: a FastAPI backend, a React frontend, PostgreSQL with pgvector, and Redis for rate-limit counters. It is not a set of microservices.
 
+
+
+https://github.com/user-attachments/assets/0acc6927-b133-4d8d-9119-6d5c81505750
+
+
+
+
 ## Contents
 
 1. [Project overview](#project-overview)
